@@ -499,13 +499,31 @@ write_out() { # write_out <template> <dest>
   say "  wrote ${2#$TARGET/}"
 }
 
-# Copy content into place WITHOUT replacing the inode. `mv` from mktemp would
-# hand the destination mktemp's 0600 mode, and would replace a symlink with a
-# regular file — silently detaching a dotfiles-managed AGENTS.md from its target.
+# Move content into place atomically, preserving what the destination already is.
+#
+# Three constraints, and an earlier version traded the first away for the others:
+#   - ATOMIC. `cat "$src" >"$dest"` truncates before writing, so an interrupted
+#     write leaves a half-file and no copy of the original. `mv` within a
+#     filesystem is a rename: the destination is either old or new, never partial.
+#   - MODE PRESERVED. A bare `mv` from mktemp hands the destination mktemp's 0600.
+#   - SYMLINK FOLLOWED. A bare `mv` replaces a symlinked AGENTS.md with a regular
+#     file, silently detaching it from whatever manages it.
+# So: resolve the link, remember the mode, rename, restore the mode.
 write_preserving() { # write_preserving <dest> <src-tmp>
-  local dest="$1" src="$2"
-  cat "$src" >"$dest"
-  rm -f "$src"
+  local dest="$1" src="$2" real mode=""
+  real="$dest"
+  while [[ -L "$real" ]]; do
+    local d t; d="$(cd -P "$(dirname "$real")" && pwd)"; t="$(readlink "$real")"
+    [[ "$t" != /* ]] && t="$d/$t"; real="$t"
+  done
+  [[ -e "$real" ]] && mode="$(stat -f '%Lp' "$real" 2>/dev/null || stat -c '%a' "$real" 2>/dev/null || true)"
+  if ! mv "$src" "$real"; then
+    rm -f "$src"
+    say "orc2: cannot write $real — left unchanged" >&2
+    return 1
+  fi
+  [[ -n "$mode" ]] && chmod "$mode" "$real"
+  return 0
 }
 
 save_config() {
@@ -513,7 +531,7 @@ save_config() {
   local v
   { say "# orc2 pipeline config for $ORC2_PROJECT — edit, then run: orc2 render"
     # printf %q so a value containing spaces, quotes, or arrows survives sourcing.
-    for v in $(env | grep '^ORC2_' | grep -vE '^ORC2_(GATE_LIST|GATE_BLOCK|GATE_COUNT|GATE_FIRST|ISSUE_GLOB|ISSUE_ROOT|DECISIONS_DIR|STATUS_MECH|LANES_MODE|LANES_SELECT_SUFFIX|LANES_PRD_CLAUSE|REF_DIR|MENTION_LINE|DELEGATION|BUILD_ORDER_LINE|QA_REF_ARG|DB_RELEASE_CLAUSE|IMPL_PR_CLAUSE|FIGMA_ROOT_CLAUSE|SLACK_MENTION_CLAUSE|DB_ENGINE_NAME|DB_RATIONALE|SKILLS_MODE|SEED_NUM|SEED_DATE|HOME|UPSTREAM_SKILLS|AGENT_MODEL|CODEX_APPROVAL|INCLUDE_DEPTH)=' \
+    for v in $(env | grep '^ORC2_' | grep -vE '^ORC2_(GATE_LIST|GATE_BLOCK|GATE_COUNT|GATE_FIRST|ISSUE_GLOB|ISSUE_ROOT|DECISIONS_DIR|STATUS_MECH|LANES_MODE|LANES_SELECT_SUFFIX|LANES_PRD_CLAUSE|REF_DIR|MENTION_LINE|DELEGATION|BUILD_ORDER_LINE|QA_REF_ARG|DB_RELEASE_CLAUSE|IMPL_PR_CLAUSE|FIGMA_ROOT_CLAUSE|SLACK_MENTION_CLAUSE|DB_ENGINE_NAME|DB_RATIONALE|DB_RECORD_LINE|SKILL_HOW|EXPLORER_HOW|SKILLS_DIR|SKILLS_MODE|SEED_NUM|SEED_DATE|HOME|UPSTREAM_SKILLS|AGENT_MODEL|CODEX_APPROVAL|INCLUDE_DEPTH)=' \
       | cut -d= -f1 | sort); do
       # Plain double quotes stay hand-editable; %q is the fallback for values
       # that would otherwise re-interpret when sourced.
@@ -639,11 +657,26 @@ markers_sane() { # markers_sane <repo-relative-file>
   [[ -f "$TARGET/$f" ]] || return 0
   s="$(grep -c 'orc2:agent-skills:start' "$TARGET/$f" || true)"
   e="$(grep -c 'orc2:agent-skills:end'   "$TARGET/$f" || true)"
-  [[ "$s" == "$e" ]] && (( s <= 1 )) && return 0
-  say "orc2: $f has $s start and $e end markers — refusing to touch it." >&2
-  say "orc2: repair them so each appears at most once and in pairs, then re-run." >&2
-  say "orc2: (splicing an unbalanced block would delete everything after the start marker.)" >&2
-  return 1
+  if [[ "$s" != "$e" ]] || (( s > 1 )); then
+    say "orc2: $f has $s start and $e end markers — refusing to touch it." >&2
+    say "orc2: repair them so each appears at most once and in pairs, then re-run." >&2
+    say "orc2: (splicing an unbalanced block would delete everything after the start marker.)" >&2
+    return 1
+  fi
+  # Counts alone are not enough. With the end marker ABOVE the start, both counts
+  # are 1, and the awk splice still sets skip=1 at the start and never clears it —
+  # deleting to end of file. Verified: a hand-edit that swaps them loses the tail.
+  if (( s == 1 )); then
+    local sl el
+    sl="$(grep -n 'orc2:agent-skills:start' "$TARGET/$f" | head -1 | cut -d: -f1)"
+    el="$(grep -n 'orc2:agent-skills:end'   "$TARGET/$f" | head -1 | cut -d: -f1)"
+    if (( sl > el )); then
+      say "orc2: $f has its end marker (line $el) above its start marker (line $sl)." >&2
+      say "orc2: refusing to touch it — splicing that order would delete everything after line $sl." >&2
+      return 1
+    fi
+  fi
+  return 0
 }
 
 # Replace the marked block in one file, or append it if the markers are absent.

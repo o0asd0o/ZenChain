@@ -298,6 +298,19 @@ else
   echo "FAIL  doctor passed a repo whose CLAUDE.md does not import AGENTS.md"; fail=1
 fi
 
+# Static: every {{VAR}} a template uses must be exported, or it renders literally.
+# The per-combo `{{` scan only covers the combos listed above; this covers all of
+# them, including variables only reachable in a config nobody happens to test.
+# Match the name anywhere in the script: many are exported on a continuation
+# line of a multi-line `export A B C \`, which an `^export ORC2_X` pattern misses.
+# `\b` is not portable under LC_ALL=C on BSD grep, so use an explicit delimiter class.
+unexported=""
+for v in $(grep -rho '{{[A-Z_0-9]*}}' "$ORC2_HOME/templates/" | tr -d '{}' | sort -u); do
+  grep -qE "ORC2_$v[^A-Z_0-9]" "$ORC2_HOME/orc2" || unexported="$unexported $v"
+done
+[[ -z "$unexported" ]] && echo "PASS  every template variable is exported" \
+  || { echo "FAIL  template variables never exported:$unexported"; fail=1; }
+
 # --- regressions found by the kimi-k3 review, each verified before fixing ----
 
 # An unbalanced marker pair must not splice: awk would set skip=1 and never clear
@@ -357,6 +370,50 @@ if grep -q 'Do not substitute a colour' "$ORC2_HOME/templates/skills/figma-to-co
   echo "PASS  accessibility-vs-reference has a single authority"
 else
   echo "FAIL  the a11y collision is routable to more than one authority"; fail=1
+fi
+
+# --- regressions the fixes themselves introduced, caught by the verify round ---
+
+# Counting markers is not enough: with the end marker ABOVE the start, both counts
+# are 1 and the splice still deletes from the start marker to EOF.
+d="$WORK/revmark"; mkdir -p "$d"; git -C "$d" init -q .
+printf '# app\n\n<!-- orc2:agent-skills:end -->\n\n<!-- orc2:agent-skills:start -->\n\nNOTES AFTER START\n' >"$d/AGENTS.md"
+"$ORC2_HOME/orc2" init "$d" --yes >/dev/null 2>&1 || true
+grep -q 'NOTES AFTER START' "$d/AGENTS.md" \
+  && echo "PASS  reversed markers do not delete the tail" \
+  || { echo "FAIL  DATA LOSS — end-above-start still deletes to EOF"; fail=1; }
+
+# A write that cannot happen must fail loudly, not print "wrote" and exit 0.
+d="$WORK/rodir"; mkdir -p "$d"; git -C "$d" init -q .
+"$ORC2_HOME/orc2" init "$d" --yes >/dev/null 2>&1
+chmod 555 "$d"
+if "$ORC2_HOME/orc2" render "$d" >"$d.log" 2>&1; then
+  echo "FAIL  render reported success into an unwritable directory"; fail=1
+else
+  echo "PASS  an unwritable destination fails loudly"
+fi
+chmod 755 "$d"
+
+# Derived prose must not land in the hand-edited config, where derive() silently
+# overwrites it on the next run.
+d="$WORK/derived"; mkdir -p "$d"; git -C "$d" init -q .
+"$ORC2_HOME/orc2" init "$d" --yes >/dev/null 2>&1
+if grep -qE 'ORC2_(SKILL_HOW|EXPLORER_HOW|SKILLS_DIR|DB_RECORD_LINE)=' "$d/.orc2/config.env"; then
+  echo "FAIL  derived variables leaked into config.env"; fail=1
+else
+  echo "PASS  derived variables stay out of config.env"
+fi
+
+# The write must stay atomic: a rename, never a truncate-then-write. Strip comments
+# first — write_preserving explains the rejected `cat >` form in its own comment,
+# and matching that made this guard fail on correct code.
+if grep -v '^\s*#' "$ORC2_HOME/orc2" | grep -q 'cat "\$src" *>"\$dest"'; then
+  echo "FAIL  write_preserving truncates the destination (lost atomicity)"; fail=1
+elif grep -v '^\s*#' "$ORC2_HOME/orc2" | grep -q 'mv "\$src" "\$real"' \
+  || grep -v '^\s*#' "$ORC2_HOME/orc2" | grep -q 'if ! mv "\$src"'; then
+  echo "PASS  writes are atomic renames"
+else
+  echo "FAIL  write_preserving no longer uses an atomic rename"; fail=1
 fi
 
 # doctor must actually run its checks. It once reported all nine skills as one
