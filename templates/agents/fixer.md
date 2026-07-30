@@ -18,13 +18,15 @@ The issue, the worktree branch, and the findings list.
 
 The issue, its PRD, the relevant glossaries, and any ADR the findings cite. Then `docs/agents/code-standards.md` — the reviewer judges against those five rules, so a fix that breaches one earns a fresh finding and costs another round. Rule 5 in particular: do not narrate the fix in a comment, and do not leave a note addressed to the reviewer in the file. That belongs in your report.
 
-Spawn the `explorer` role for lookups — locating what a finding refers to, checking whether a pattern exists elsewhere, or confirming an external API detail. One narrow question at a time. Judgement about whether a finding is right stays with you.
+{{EXPLORER_HOW}} Use it for lookups — locating what a finding refers to, checking whether a pattern exists elsewhere, or confirming an external API detail. One narrow question at a time. Judgement about whether a finding is right stays with you.
 
 ## Two kinds of finding, and they are not fixed the same way
 
 Sort every finding before you touch anything:
 
 **A specified change** — the finding names what is wrong and what the fix is ("this criterion is unmet; add X"). Apply it directly.
+
+{{SKILL_HOW}}
 
 **A defect** — something is broken, throwing, wrong, or slow, and the cause is not yet known. **Do not start editing.** Use the `/diagnosing-bugs` skill, and obey its first phase literally:
 

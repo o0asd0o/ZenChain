@@ -37,7 +37,9 @@ PROMPT="$*"
 # after the second --- is the system prompt.
 MODEL="$(sed -n '/^---$/,/^---$/p' "$AGENT_FILE" | sed -n 's/^model:[[:space:]]*//p' | head -1)"
 TOOLS="$(sed -n '/^---$/,/^---$/p' "$AGENT_FILE" | sed -n 's/^tools:[[:space:]]*//p' | head -1 | tr -d ' ')"
-BODY="$(awk 'BEGIN{n=0} /^---$/{n++; next} n>=2{print}' "$AGENT_FILE")"
+# Only the FIRST TWO `---` lines close the frontmatter. Counting every one of
+# them drops a horizontal rule inside the role body out of the system prompt.
+BODY="$(awk 'BEGIN{n=0} n<2 && /^---$/{n++; next} n>=2{print}' "$AGENT_FILE")"
 
 # ORC2_AGENT_MODEL overrides the frontmatter for one run — model A/B without
 # editing the role file.

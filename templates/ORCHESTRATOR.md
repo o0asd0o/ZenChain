@@ -49,6 +49,8 @@ Run every command in that list, in that order, every time. A subset is not the g
 
 2. **Implement.** Spawn `implementer` with the issue path. Wait for it.
 
+<!-- orc2:include design-triage-{{DESIGN}} -->
+
 3. **Gate.** In the worktree, run the gate — every command, in order. On failure, hand the output back to the implementer once. Still failing, escalate **to the human** and stop on this issue — a failing gate is a broken build, not an open question for the decider.
 
 4. **Review.** Spawn `reviewer` with the issue path, the diff, the changed files, and your gate results. It is read-only, cannot run tests, and cannot delegate — give it everything it needs up front, and fetch anything it reports missing rather than expecting it to work around the gap.
@@ -111,7 +113,7 @@ When every issue under a PRD is closed:
 
 ### Run the QA loop, capped at {{ROUND_CAP}}
 
-Spawn `qa` with the PRD path{{QA_REF_ARG}}.
+Spawn `qa` with the PRD path{{QA_REF_ARG}}, **and the list of issues closed under it**. It needs that list to name which issue should reopen for each failure — without it, its findings arrive unroutable and you have to map them by hand.
 
 - **PASS** — record it at the top of the PRD, and **stop for a human checkpoint**. This is the designed HITL point. Do not start the next PRD unattended.
 - **FAIL** — spawn `fixer` with QA's findings. Re-run the gate yourself. Then return to **the same QA agent** so it verifies its own findings rather than re-deriving the PRD, and count the round.
@@ -119,6 +121,8 @@ Spawn `qa` with the PRD path{{QA_REF_ARG}}.
 {{ROUND_CAP}} rounds without PASS: reopen the named issues, append the outstanding findings, and escalate to a human. Do not record a PASS at the top of the PRD.
 
 Two things the fixer may not do in this loop, and you enforce both. It may not change an acceptance criterion, a PRD requirement, or a design figure to make a fidelity finding go away — if the reference and the requirement genuinely disagree, that is a contradiction and goes to the `decider`. And a fidelity finding that turns out to require breaking {{A11Y}} is escalated to the human, not implemented; the accessibility commitment outranks the visual reference where the two collide, and that is not the decider's to soften.
+
+**One question, one authority.** The reference-versus-accessibility collision is settled in exactly one place: *the reference loses, and a human picks the replacement.* The `decider` may rule that the reference loses and must say so in a record; it may not choose the colour. The implementer and fixer may apply a replacement **only** when one is already recorded, citing it. Anyone inventing an unaudited pairing has made a product decision they do not own.
 
 QA's "needs human eyes" list is never auto-accepted, and never sent to the fixer. It goes to the human at the checkpoint, always.
 
@@ -145,7 +149,7 @@ Questions the decider takes rather than the human, always at `Stakes: high` in i
 - Changes to money, stock, or state-machine semantics beyond what an issue specifies — totals, tax, rounding, holds, claims, transitions.
 - A reviewer and fixer converging on "close enough" for a concurrency or money test. The decider judges whether close enough is actually enough; its default is no.
 - Any contradiction between an issue and an ADR, a glossary, or a product or design document.
-- **Any new third-party dependency, and any backend service, engine, or provider choice** — see the section above. The database engine this project uses is `{{DB_ENGINE_NAME}}`, and a record for that choice already exists.
+- **Any new third-party dependency, and any backend service, engine, or provider choice** — see the section above. {{DB_RECORD_LINE}}
 
 High-stakes records are named individually at the next human checkpoint, so the human sees the riskiest calls soonest.
 

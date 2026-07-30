@@ -15,7 +15,7 @@ Issues and PRDs for this repo live on GitHub, driven with the `gh` CLI.
 ```bash
 gh issue view <N> --comments                      # read an issue and its history
 gh issue list --label ready-for-agent --json number,title,labels
-gh issue edit <N> --add-label done --remove-label ready-for-agent
+gh issue close <N> --reason completed         # closing IS "done" — there is no done label
 gh issue comment <N> --body-file <file>           # record an outcome
 gh pr create --fill                               # after the local gate is green
 gh pr checks <N> --watch                          # CI, which is not your gate

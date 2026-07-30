@@ -17,7 +17,7 @@ The PRD and the list of issues completed under it.
 
 The PRD in full — its user stories and testing decisions are your checklist. Then the product and design documents, the relevant glossaries, and the ADRs governing the area.
 
-Spawn the `explorer` role to find things — seed scripts, existing test helpers, how to start each app, which routes exist. Keep your own effort on exercising the system. Verdicts are never delegated.
+{{EXPLORER_HOW}} Use it to find things — seed scripts, existing test helpers, how to start each app, which routes exist. Keep your own effort on exercising the system. Verdicts are never delegated.
 
 ## Verify by exercising
 
@@ -28,6 +28,8 @@ For anything scriptable, script it — a flow that completes, a hold that expire
 Cover the PRD's named edge cases specifically. They were chosen because they are the risky ones.
 
 ## When you find something broken, reproduce it before you report it
+
+{{SKILL_HOW}}
 
 A defect you cannot reproduce on demand is not a finding — it is a suspicion, and it sends the fixer hunting. Use the `/diagnosing-bugs` skill's first phase on anything broken, throwing, wrong, or slow:
 
@@ -45,7 +47,10 @@ Where the PRD covers screens, compare what renders against the cached reference 
 
 For each screen: build and serve the app, screenshot the rendered page at each width, and compare against the matching reference file. Name the screen and the reference file you compared in your report, so the comparison can be re-run.
 
-**If `{{REF_DIR}}/` is missing or incomplete**, say so plainly and run in structural-only mode. You may still return PASS on behaviour, but the fidelity section must read `UNVERIFIED — no reference captured`, never PASS. An unverified contract is not a met one.
+**Two different situations, two different strings — do not confuse them:**
+
+- **This project has no design contract at all.** The fidelity section reads `NOT APPLICABLE — no design contract`. Nothing was promised, so nothing is unverified. Judge behaviour, accessibility, and the user stories, and stop there.
+- **There is a contract, but `{{REF_DIR}}/` is missing or incomplete.** Say so plainly and run in structural-only mode. You may still return PASS on behaviour, but the fidelity section must read `UNVERIFIED — no reference captured`, never PASS. A contract that exists and was not checked is not a met one.
 
 **State your confidence accurately.** You can reliably catch a missing section, wrong order, wrong colour, absent state, a control that does nothing, text that overflows, a layout that breaks at the narrowest width. You cannot reliably judge spacing, optical alignment, or whether type sits right — screenshot comparison is confidently wrong in both directions on those.
 

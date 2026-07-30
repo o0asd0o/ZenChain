@@ -87,8 +87,10 @@ ask_choice() { # ask_choice VAR "prompt" default opt1 opt2 ...
   printf 'choice [%s]: ' "$def" >&2
   read -r ans </dev/tty || ans=""
   [[ -z "$ans" ]] && { export "$var=$def"; return; }
-  if [[ "$ans" =~ ^[0-9]+$ ]] && (( ans >= 1 && ans <= ${#opts[@]} )); then
-    export "$var=${opts[$((ans-1))]%% *}"
+  # 10# forces base ten: a zero-padded answer like 08 is an invalid octal
+  # literal, and bash aborts the (( )) with an error rather than comparing.
+  if [[ "$ans" =~ ^[0-9]+$ ]] && (( 10#$ans >= 1 && 10#$ans <= ${#opts[@]} )); then
+    export "$var=${opts[$((10#$ans - 1))]%% *}"
   else
     export "$var=$ans"
   fi
@@ -284,7 +286,11 @@ fetch_skills() { # fetch_skills <dest-dir>
 
   mkdir -p "$dest"
   for s in $ORC2_SKILLS_SET; do
-    if tar -xzf "$tmp" -C "$dest" --strip-components=3 "skills-$sha/skills/engineering/$s" 2>/dev/null; then
+    # Codeload unpacks under <repo-name>-<sha>/, not a fixed "skills-<sha>/".
+    # Hardcoding the name silently extracted nothing for any ORC2_SKILLS_REPO
+    # whose repo is not literally called "skills" — got=0, and a render that
+    # "succeeded" with dangling skill references in every role prompt.
+    if tar -xzf "$tmp" -C "$dest" --strip-components=3 "${ORC2_SKILLS_REPO##*/}-$sha/skills/engineering/$s" 2>/dev/null; then
       got=$((got + 1))
       # A user-only skill cannot be invoked by an agent. Strip the flag on the
       # ones a role prompt names, and record that the file was modified.
@@ -371,7 +377,6 @@ derive() {
   done
   export ORC2_GATE_LIST="${out_list%, }"
   export ORC2_GATE_BLOCK="${out_block%$'\n'}"
-  export ORC2_GATE_COUNT="${#CMDS[@]}"
   export ORC2_GATE_FIRST="$(echo "${CMDS[0]}" | sed 's/^ *//;s/ *$//')"
 
   case "$ORC2_TRACKER" in
@@ -398,6 +403,26 @@ derive() {
 
   # Can the backend running the implementer discover a skill by name?
   export ORC2_SKILLS_MODE="$([[ "$ORC2_RUNNER_MECH" == claude ]] && echo native || echo vendored)"
+  # Where skills actually land — keyed off ORC2_RUNNER, because that is what
+  # do_render keys SKILLDIR off. The vendored-path fragment must cite this and
+  # not a guess: runner=claude + mech=pi puts skills in .claude/skills while the
+  # fragment used to name .orc2/skills, so every cited path dangled.
+  export ORC2_SKILLS_DIR="$([[ "$ORC2_RUNNER" == claude ]] && echo ".claude/skills" || echo ".orc2/skills")"
+  # How a role reaches a skill named as `/name`. On a backend with no skill
+  # mechanism the name alone is a dangling reference, so cite the vendored path.
+  if [[ "$ORC2_SKILLS_MODE" == native ]]; then
+    export ORC2_SKILL_HOW="Skills named below as \`/name\` are invocable directly."
+  else
+    export ORC2_SKILL_HOW="Your backend has no skill mechanism, so a skill named below as \`/name\` is a **file to read**, at \`$ORC2_SKILLS_DIR/<name>/SKILL.md\`. Read it before acting on the instruction that cites it; if it is missing, say so in your report rather than improvising the procedure and calling it followed."
+  fi
+  # How a role reaches `explorer`. Native subagent, or the bridge — the role
+  # prompts say "spawn the explorer", which is unactionable on a backend that
+  # has no subagent mechanism unless it is told the command.
+  if [[ "$ORC2_RUNNER_MECH" == claude ]]; then
+    export ORC2_EXPLORER_HOW="Spawn the \`explorer\` subagent with the \`Agent\` tool."
+  else
+    export ORC2_EXPLORER_HOW="Run \`.orc2/bin/orc2-agent explorer \"<one bounded question>\"\` with the shell — this backend has no subagent mechanism, so that command IS the explorer."
+  fi
 
   # Which roles run outside the orchestrator's own CLI.
   if   [[ "$ORC2_RUNNER" != claude ]];      then export ORC2_DELEGATION="bridge-all"
@@ -425,6 +450,12 @@ derive() {
               export ORC2_DB_ENGINE_NAME="none"
               export ORC2_DB_RATIONALE="" ;;
   esac
+  # Only claim the seeded engine record exists when one was actually written.
+  if [[ "$ORC2_DB" == none ]]; then
+    export ORC2_DB_RECORD_LINE="This project has no database, so introducing one is a decision, not an implementation detail."
+  else
+    export ORC2_DB_RECORD_LINE="The database engine this project uses is \`$ORC2_DB_ENGINE_NAME\`, and a record for that choice already exists."
+  fi
   export ORC2_IMPL_PR_CLAUSE="$([[ "$ORC2_TRACKER" == github ]] \
     && echo "The \`implement\` skill's PR-and-CI closeout is the orchestrator's job, not yours — do not run \`gh\`." \
     || echo "The \`implement\` skill requires opening a pull request and polling CI before closeout. This repository has no remote and no CI. Do not run \`gh\`.")"
@@ -454,9 +485,27 @@ render() { # render <template-path> [depth]
 }
 
 write_out() { # write_out <template> <dest>
+  local tmp
+  # A missing template must not cost the human the file that is already there.
+  # `render >"$dest"` truncates before it runs, so a bad ORC2_TRACKER value used
+  # to leave the previous good file zero-byte and abort the render half-done.
+  [[ -f "$1" ]] || { say "orc2: no template at ${1#$TPL/} — check the enum values in .orc2/config.env" >&2; return 1; }
   mkdir -p "$(dirname "$2")"
-  render "$1" >"$2"
+  tmp="$(mktemp -t orc2-render.XXXXXX)"
+  if ! render "$1" >"$tmp"; then
+    rm -f "$tmp"; say "orc2: render failed for ${1#$TPL/}; left ${2#$TARGET/} untouched" >&2; return 1
+  fi
+  write_preserving "$2" "$tmp"
   say "  wrote ${2#$TARGET/}"
+}
+
+# Copy content into place WITHOUT replacing the inode. `mv` from mktemp would
+# hand the destination mktemp's 0600 mode, and would replace a symlink with a
+# regular file — silently detaching a dotfiles-managed AGENTS.md from its target.
+write_preserving() { # write_preserving <dest> <src-tmp>
+  local dest="$1" src="$2"
+  cat "$src" >"$dest"
+  rm -f "$src"
 }
 
 save_config() {
@@ -581,10 +630,27 @@ do_render() {
   save_config
 }
 
+# A start marker with no end marker means the awk splice below would set skip=1
+# and never clear it, deleting everything from the marker to end of file — a
+# human's notes included. Refuse instead. A mangled marker is a two-second manual
+# fix; the deletion is unrecoverable if the file was not committed.
+markers_sane() { # markers_sane <repo-relative-file>
+  local f="$1" s e
+  [[ -f "$TARGET/$f" ]] || return 0
+  s="$(grep -c 'orc2:agent-skills:start' "$TARGET/$f" || true)"
+  e="$(grep -c 'orc2:agent-skills:end'   "$TARGET/$f" || true)"
+  [[ "$s" == "$e" ]] && (( s <= 1 )) && return 0
+  say "orc2: $f has $s start and $e end markers — refusing to touch it." >&2
+  say "orc2: repair them so each appears at most once and in pairs, then re-run." >&2
+  say "orc2: (splicing an unbalanced block would delete everything after the start marker.)" >&2
+  return 1
+}
+
 # Replace the marked block in one file, or append it if the markers are absent.
 # Everything the human wrote outside the markers survives.
 upsert_block() { # upsert_block <repo-relative-file> <body-file>
   local f="$1" body="$2" tmp
+  markers_sane "$f" || return 1
   if [[ -f "$TARGET/$f" ]] && grep -q 'orc2:agent-skills:start' "$TARGET/$f"; then
     tmp="$(mktemp -t orc2-agents.XXXXXX)"
     # The block is multi-line, so it reaches awk as a file: awk rejects a literal
@@ -594,7 +660,7 @@ upsert_block() { # upsert_block <repo-relative-file> <body-file>
       /orc2:agent-skills:end/   { skip=0; next }
       !skip { print }
     ' "$TARGET/$f" >"$tmp"
-    mv "$tmp" "$TARGET/$f"
+    write_preserving "$TARGET/$f" "$tmp"
     say "  updated the Agent skills block in $f"
   else
     [[ -s "$TARGET/$f" ]] && printf '\n' >>"$TARGET/$f"
@@ -609,13 +675,14 @@ upsert_block() { # upsert_block <repo-relative-file> <body-file>
 strip_block() { # strip_block <repo-relative-file>
   local f="$1" tmp
   [[ -f "$TARGET/$f" ]] && grep -q 'orc2:agent-skills:start' "$TARGET/$f" || return 0
+  markers_sane "$f" || return 1
   tmp="$(mktemp -t orc2-strip.XXXXXX)"
   awk '
     /orc2:agent-skills:start/ { skip=1; next }
     /orc2:agent-skills:end/   { skip=0; next }
     !skip { print }
   ' "$TARGET/$f" >"$tmp"
-  mv "$tmp" "$TARGET/$f"
+  write_preserving "$TARGET/$f" "$tmp"
   say "  moved the Agent skills block out of $f (it now imports AGENTS.md)"
 }
 

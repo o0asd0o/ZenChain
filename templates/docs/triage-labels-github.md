@@ -10,7 +10,7 @@ The skills speak in terms of five canonical triage roles. This file maps those r
 | `ready-for-human` | `ready-for-human` | Not yet built; needs a human to implement it                    |
 | `wontfix`         | `wontfix`         | Will not be actioned                                           |
 
-Closing state is GitHub's own: an issue that merged with a green gate is **closed as completed**, not labelled. That is the one advantage a remote tracker has here — it has a real closed state, so nothing needs a `done` label.
+Closing state is GitHub's own: an issue that merged with a green gate is **closed as completed**, not labelled — `gh issue close <N> --reason completed`. That is the one advantage a remote tracker has here: it has a real closed state, so there is no `done` label, and none is created. Where the orchestrator says "mark the issue done", on this tracker that means close it.
 
 Create the labels once:
 

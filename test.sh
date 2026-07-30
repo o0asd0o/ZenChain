@@ -298,6 +298,67 @@ else
   echo "FAIL  doctor passed a repo whose CLAUDE.md does not import AGENTS.md"; fail=1
 fi
 
+# --- regressions found by the kimi-k3 review, each verified before fixing ----
+
+# An unbalanced marker pair must not splice: awk would set skip=1 and never clear
+# it, deleting everything from the start marker to EOF. Verified: it did.
+d="$WORK/markers"; mkdir -p "$d"; git -C "$d" init -q .
+printf '# app\n\n<!-- orc2:agent-skills:start -->\nold\n\nHUMAN NOTES\n' >"$d/AGENTS.md"
+"$ORC2_HOME/orc2" init "$d" --yes >/dev/null 2>&1 || true
+grep -q 'HUMAN NOTES' "$d/AGENTS.md" \
+  && echo "PASS  unbalanced markers do not delete the rest of the file" \
+  || { echo "FAIL  DATA LOSS — content after an unpaired start marker was deleted"; fail=1; }
+
+# mktemp+mv used to hand the destination mode 0600 and replace symlinks with
+# regular files, silently detaching a dotfiles-managed AGENTS.md.
+d="$WORK/perms"; mkdir -p "$d"; git -C "$d" init -q .
+"$ORC2_HOME/orc2" init "$d" --yes >/dev/null 2>&1
+chmod 644 "$d/AGENTS.md"; "$ORC2_HOME/orc2" render "$d" >/dev/null 2>&1
+[[ "$(stat -f '%Lp' "$d/AGENTS.md" 2>/dev/null || stat -c '%a' "$d/AGENTS.md")" == 644 ]] \
+  && echo "PASS  re-render preserves file mode" \
+  || { echo "FAIL  re-render changed the file mode (mktemp 0600 leak)"; fail=1; }
+mkdir -p "$d/real" && mv "$d/AGENTS.md" "$d/real/" && ln -s real/AGENTS.md "$d/AGENTS.md"
+"$ORC2_HOME/orc2" render "$d" >/dev/null 2>&1
+[[ -L "$d/AGENTS.md" ]] \
+  && echo "PASS  re-render writes through a symlink" \
+  || { echo "FAIL  re-render replaced a symlink with a regular file"; fail=1; }
+
+# `render >"$dest"` truncated before running, so a bad enum destroyed the
+# previous good file and left placeholders in everything rendered before it.
+d="$WORK/badenum"; mkdir -p "$d"; git -C "$d" init -q .
+"$ORC2_HOME/orc2" init "$d" --yes >/dev/null 2>&1
+before="$(wc -c <"$d/docs/agents/issue-tracker.md")"
+perl -pi -e 's/^ORC2_TRACKER=.*/ORC2_TRACKER="jira"/' "$d/.orc2/config.env"
+"$ORC2_HOME/orc2" render "$d" >/dev/null 2>&1 || true
+[[ "$(wc -c <"$d/docs/agents/issue-tracker.md")" == "$before" ]] \
+  && echo "PASS  an invalid enum leaves existing files intact" \
+  || { echo "FAIL  an invalid enum truncated an existing rendered file"; fail=1; }
+
+# The tarball root is <repo-name>-<sha>; hardcoding "skills-" extracted nothing
+# for any other repo, and the render still reported success.
+grep -q 'ORC2_SKILLS_REPO##\*/' "$ORC2_HOME/orc2" \
+  && echo "PASS  tar member path derives from the repo name" \
+  || { echo "FAIL  tar member path is hardcoded; a renamed skills repo vendors nothing"; fail=1; }
+
+# A zero-padded menu answer is an invalid octal literal: (( 08 )) aborts.
+grep -q '10#\$ans' "$ORC2_HOME/orc2" \
+  && echo "PASS  menu input is parsed base-ten" \
+  || { echo "FAIL  zero-padded input still hits the octal error"; fail=1; }
+
+# Only the first two --- close frontmatter; a horizontal rule in a role body was
+# being dropped out of the system prompt.
+grep -q 'n<2 && /\^---\$/' "$ORC2_HOME/bin/orc2-agent" \
+  && echo "PASS  bridge frontmatter parser stops after two delimiters" \
+  || { echo "FAIL  bridge still strips --- lines from the role body"; fail=1; }
+
+# One authority per question: the reference-vs-accessibility collision had three.
+if grep -q 'Do not substitute a colour' "$ORC2_HOME/templates/skills/figma-to-code/SKILL.md" \
+   && grep -q 'you do not choose the replacement colour' "$ORC2_HOME/templates/fragments/decider-design-figma.md"; then
+  echo "PASS  accessibility-vs-reference has a single authority"
+else
+  echo "FAIL  the a11y collision is routable to more than one authority"; fail=1
+fi
+
 # doctor must actually run its checks. It once reported all nine skills as one
 # unreachable name because an IFS set for the gate loop leaked into the skills
 # loop — a green-looking pass that checked nothing.
@@ -311,7 +372,12 @@ grep -qc 'gate cmd' <<<"$out" \
   || { echo "FAIL  doctor did not check the gate"; fail=1; }
 
 # The bridge must refuse an unknown role rather than dispatching something.
-if "$WORK/figma-pi-2lane-db-codegen-slack/.orc2/bin/orc2-agent" nosuchrole "x" 2>/dev/null; then
+bridge="$WORK/figma-pi-2lane-postgres-codegen-slack/.orc2/bin/orc2-agent"
+# The path must exist, or the test passes vacuously: a nonexistent path exits 127,
+# which is non-zero, which looked exactly like "the bridge rejected the role".
+# It did that silently for several renames.
+[[ -x "$bridge" ]] || { echo "FAIL  bridge not found at $bridge — the rejection test would pass vacuously"; fail=1; }
+if [[ -x "$bridge" ]] && "$bridge" nosuchrole "x" 2>/dev/null; then
   echo "FAIL  bridge accepted an unknown role"; fail=1
 else
   echo "PASS  bridge rejects an unknown role"

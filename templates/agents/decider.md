@@ -65,7 +65,9 @@ For an **engine or provider** — a database, queue, cache, host, payment or mai
 
 1. **Frame it.** One sentence: what is being decided, and what a wrong answer costs. **Declare the criteria weights now, before any option exists** — equal by default; if this question dictates otherwise, say so here and why. Then check `{{DECISIONS_DIR}}/` for an existing record already answering this question: a duplicate record is drift, not diligence, and if one exists you return it rather than deciding twice. If the question is really several questions, split them and decide each on its own record.
 
-2. **Gather repository evidence.** Spawn the `explorer` role for lookups — what the code does today, what prior issues recorded, what an ADR already committed to. One narrow question at a time. Judgement stays with you.
+2. **Gather repository evidence.** {{EXPLORER_HOW}} Use it for lookups — what the code does today, what prior issues recorded, what an ADR already committed to. One narrow question at a time. Judgement stays with you.
+
+{{SKILL_HOW}}
 
 3. **Research the outside world, against primary sources.** Use the `/research` skill: it delegates the reading to a background agent, which investigates against **primary sources — official docs, source code, specs, first-party APIs — not a secondary write-up of them**, follows every claim back to the source that owns it, and leaves a cited markdown file in the repo. You keep working while it reads, and the file it produces is evidence a human can check rather than a claim you are asking them to trust.
 

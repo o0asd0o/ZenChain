@@ -63,7 +63,13 @@ The tools that matter:
 ## Verify
 
 1. **Visual comparison** against the screenshot you already fetched. Every sizing, spacing, and colour mismatch is a bug.
-2. **Contrast audit** — every text and background pair must clear {{A11Y}}. Where the reference's own colours fail, **accessibility wins**: substitute an audited pair and record why in the component.
+2. **Contrast audit** — every text and background pair must clear {{A11Y}}.
+
+   Where the reference's own colours fail, **stop and report it. Do not substitute a colour.** Accessibility does outrank the reference, but choosing the replacement is not yours: the orchestrator escalates it to a human, because an audited pairing is a product decision with a visible consequence on every screen that uses it. Name the failing pair, its measured ratio, and the node it came from.
+
+   Substituting quietly is the exact move this pipeline forbids — it resolves a contradiction by picking a side, and it guarantees QA later raises a fidelity finding the fixer is not allowed to fix.
+
+   If an audited replacement pair is **already recorded** — in the design system, an ADR, or a `{{DECISIONS_DIR}}/` record — use it and cite the record. That is applying a decision, not making one.
 3. **Responsive check** at every width the reference covers. Both must match the corresponding frame.
 4. **The gate** — {{GATE_LIST}}. Document any pre-existing failure; never claim a clean gate when one was already failing.
 

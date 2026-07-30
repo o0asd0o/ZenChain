@@ -26,7 +26,7 @@ Use the glossary's canonical terms in names, tests, and commit messages. Where a
 
 ## Delegate searching to `explorer`
 
-Spawn the `explorer` role for bounded lookups rather than searching yourself. It is fast and cheap, and it keeps your context on the implementation.
+{{EXPLORER_HOW}} Use it for bounded lookups rather than searching yourself. It is fast and cheap, and it keeps your context on the implementation.
 
 Good uses: where a symbol or pattern lives, whether a helper already exists before you write one, how a similar case was handled elsewhere, which tests cover an area, and external documentation — including reading a dependency's source when its interfaces are undocumented and must be read rather than assumed.
 
