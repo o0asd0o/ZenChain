@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# orc2-agent — run a role prompt as a headless agent on whichever backend the
+# project configured. Installed into <repo>/.orc2/bin/ by `orc2 init`.
+#
+# Usage: orc2-agent <role> [--cwd DIR] [--backend claude|codex|pi] <prompt...>
+#        echo "$LONG_PROMPT" | orc2-agent explorer
+#
+# The role's model, tools, and system prompt come from .orc2/agents/<role>.md —
+# never hardcoded here. To change a role's model, edit that file's `model:` line.
+#
+# Exit codes: 0 report on stdout · 2 usage/config error · 3 backend produced
+# nothing (see EMPTY OUTPUT below).
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+CONFIG="$REPO_ROOT/.orc2/config.env"
+[[ -f "$CONFIG" ]] && { set -a; . "$CONFIG"; set +a; }
+
+ROLE="${1:?usage: orc2-agent <role> [--cwd DIR] [--backend B] <prompt...>}"; shift
+CWD="$REPO_ROOT"; BACKEND=""
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --cwd)     CWD="$2"; shift 2 ;;
+    --backend) BACKEND="$2"; shift 2 ;;
+    *) echo "orc2-agent: unknown flag $1" >&2; exit 2 ;;
+  esac
+done
+
+AGENT_FILE="$REPO_ROOT/.orc2/agents/$ROLE.md"
+[[ -f "$AGENT_FILE" ]] || { echo "orc2-agent: no role file $AGENT_FILE" >&2; exit 2; }
+
+PROMPT="$*"
+[[ -z "$PROMPT" && ! -t 0 ]] && PROMPT="$(cat)"
+[[ -n "$PROMPT" ]] || { echo "orc2-agent: empty prompt" >&2; exit 2; }
+
+# Frontmatter (between the first two --- lines) gives model + tools; the body
+# after the second --- is the system prompt.
+MODEL="$(sed -n '/^---$/,/^---$/p' "$AGENT_FILE" | sed -n 's/^model:[[:space:]]*//p' | head -1)"
+TOOLS="$(sed -n '/^---$/,/^---$/p' "$AGENT_FILE" | sed -n 's/^tools:[[:space:]]*//p' | head -1 | tr -d ' ')"
+BODY="$(awk 'BEGIN{n=0} /^---$/{n++; next} n>=2{print}' "$AGENT_FILE")"
+
+# ORC2_AGENT_MODEL overrides the frontmatter for one run — model A/B without
+# editing the role file.
+MODEL="${ORC2_AGENT_MODEL:-$MODEL}"
+# `inherit` means "whatever the backend is configured to use" — pass no flag.
+[[ "$MODEL" == inherit || "$MODEL" == default ]] && MODEL=""
+
+# Mechanical roles default to the mechanical backend, judgement roles to the
+# orchestrator's own. --backend wins over both.
+if [[ -z "$BACKEND" ]]; then
+  case "$ROLE" in
+    implementer|fixer|explorer) BACKEND="${ORC2_RUNNER_MECH:-claude}" ;;
+    *)                          BACKEND="${ORC2_RUNNER:-claude}" ;;
+  esac
+fi
+
+SYS_FILE="$(mktemp -t orc2-agent-sys.XXXXXX)"
+OUT_FILE="$(mktemp -t orc2-agent-out.XXXXXX)"
+trap 'rm -f "$SYS_FILE" "$OUT_FILE"' EXIT
+printf '%s\n' "$BODY" >"$SYS_FILE"
+
+cd "$CWD"
+set +e
+case "$BACKEND" in
+  pi)
+    ARGS=(-p --no-session --append-system-prompt "$SYS_FILE")
+    [[ -n "$MODEL" ]] && ARGS+=(--model "$MODEL")
+    [[ -n "$TOOLS" ]] && ARGS+=(--tools "$TOOLS")
+    pi "${ARGS[@]}" "$PROMPT" >"$OUT_FILE" 2>&1
+    ;;
+  claude)
+    ARGS=(-p --append-system-prompt "$(cat "$SYS_FILE")")
+    [[ -n "$MODEL" ]] && ARGS+=(--model "$MODEL")
+    [[ -n "$TOOLS" ]] && ARGS+=(--allowedTools "$TOOLS")
+    claude "${ARGS[@]}" "$PROMPT" >"$OUT_FILE" 2>&1
+    ;;
+  codex)
+    # Codex exec has no system-prompt flag, so the role prompt is prepended to
+    # the task. Keep the separator — it is what stops the model reading its own
+    # instructions as part of the task.
+    ARGS=(exec --cd "$CWD" "${ORC2_CODEX_APPROVAL:---full-auto}")
+    [[ -n "$MODEL" ]] && ARGS+=(-m "$MODEL")
+    codex "${ARGS[@]}" "$(printf '%s\n\n===== TASK =====\n\n%s\n' "$BODY" "$PROMPT")" >"$OUT_FILE" 2>&1
+    ;;
+  *) echo "orc2-agent: unknown backend '$BACKEND'" >&2; exit 2 ;;
+esac
+STATUS=$?
+set -e
+
+cat "$OUT_FILE"
+
+# EMPTY OUTPUT is a failure, not a success. A backend that has run out of
+# credit, lost its auth, or died on a transport error can exit 0 with nothing on
+# stdout — which reads to the orchestrator as a clean run that found nothing to
+# do. Fail loudly instead.
+if [[ ! -s "$OUT_FILE" ]]; then
+  echo "orc2-agent: $BACKEND produced NO output for role '$ROLE' (exit $STATUS)." >&2
+  echo "orc2-agent: treat this as a failed dispatch, not an empty result. Check auth/credit on '$BACKEND' before respawning." >&2
+  exit 3
+fi
+exit $STATUS

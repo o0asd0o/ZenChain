@@ -1,0 +1,111 @@
+# orc2 — a portable six-agent implementation pipeline
+
+Installs an unattended implement→review→fix→QA pipeline into any git repository. Extracted from a project that ran it for nine PRDs; every rule in the templates is there because breaking it cost a real round.
+
+```bash
+ln -sf ~/orc2/orc2 ~/.local/bin/orc2   # once — symlink, do not copy
+cd ~/code/my-project                   # then, from inside any project folder:
+orc2 init                              # interview, then render
+orc2 doctor                            # check the install and its backends
+```
+
+`orc2 init` with no argument targets the current directory. On a fresh repo it will **not** tell you to run the pipeline — there is nothing to run. It points at `/plan-app` → `/grill-with-docs` → `/to-spec` → `/to-tickets` first, and `orc2 doctor` re-reads the repo's state every time to print the step you are actually on. **Symlink it, never copy it** — the script resolves its own location back through the link to find `templates/`, and a copy has no way to reach them. It refuses to write anything at all rather than half-render if it cannot.
+
+## What gets installed
+
+| Path                                | What it is                                                      |
+| ----------------------------------- | --------------------------------------------------------------- |
+| `.orc2/config.env`                   | every answer from the interview — the re-render source           |
+| `<pipeline-dir>/ORCHESTRATOR.md`    | the pipeline itself; the orchestrator reads this and follows it   |
+| `.claude/agents/*.md`               | role prompts, for roles running as native Claude subagents        |
+| `.orc2/agents/*.md`                  | role prompts, for roles dispatched through the bridge             |
+| `.orc2/bin/orc2-agent`                | the bridge — runs a role headlessly on claude, codex, or pi       |
+| `.claude/skills/run-issue`          | entry point: one issue, then stop                                 |
+| `.claude/skills/run-prd`            | entry point: one PRD, then stop at the human checkpoint           |
+| `.codex/prompts/run-{issue,prd}.md` | the same two entry points, when the orchestrator runs on Codex    |
+| `docs/agents/*.md`                  | tracker, triage, domain, flow, and code-standards conventions      |
+| `<skills-dir>/{code-review,diagnosing-bugs,tdd,research,…}` | Matt Pocock's engineering skills, vendored at a pinned commit |
+| `AGENTS.md`                         | an `## Agent skills` block between markers, so the skills find their config |
+| `CLAUDE.md`                         | a single line, `@AGENTS.md`, importing the above                            |
+| `<decisions-dir>/LOG.md`            | the decider's audit trail index                                   |
+| `<decisions-dir>/001-database-engine.md` | the engine choice, seeded as a real record (when a DB is used) |
+
+Nothing is written outside those paths. The only existing files `orc2` ever edits are `AGENTS.md` and `CLAUDE.md`, and only between its own markers or by appending one import line — everything the human wrote survives a re-render.
+
+**The agent file stays a pointer, not a rulebook.** It loads into every session and every subagent, so anything inlined there is paid for by roles that cannot use it. Coding standards live in `docs/agents/code-standards.md` and are **routed**: read by `implementer`, `fixer`, and `reviewer`, and by none of `explorer`, `qa`, `decider` — which never write product code. The test asserts both halves of that, so a future edit cannot quietly broadcast it again.
+
+**Why two files.** `AGENTS.md` is the cross-tool convention and holds the block; `CLAUDE.md` is the file Claude Code is documented to load, and gets `@AGENTS.md`. Relying on `AGENTS.md` alone under `runner=claude` risks a perfectly good config the model never sees, so `orc2 doctor` **fails** when the import is missing, and fails again if both files end up carrying the block. A repo where an earlier version wrote the block straight into `CLAUDE.md` is migrated on the next render. Set `ORC2_AGENTS_FILE` to put the block somewhere else verbatim, with no import wiring.
+
+## Where this sits in a longer flow
+
+orc2 is the **unattended half**. The interactive half — idea → grilled → spec → tickets — belongs to [Matt Pocock's engineering skills](https://github.com/mattpocock/skills), and orc2 does not automate it: most of those skills are user-only by design, because they exist to interview a human.
+
+```
+  /plan-app ──→ /grill-with-docs ──→ /to-spec ──→ /to-tickets ═══╬══>  /run-prd  (orc2)
+   (agenda +     (one app-wide       (one per     (per PRD)      ║
+    PRD areas)    session)            area)                      ║
+  /research /prototype /wayfinder /triage ───────────────────────┘
+                                             the seam: agent-ready tickets exist
+```
+
+`/plan-app` is rendered by orc2 and is the front door: the app-wide grilling agenda (stack, domain vocabulary, trust boundaries, operations) plus the decomposition into PRD areas that reaches **release, not feature-complete** — Foundation → Identity → Core domain → Data → Interface → Integrations → Observability → Security hardening → Release & operations. Security appears twice on purpose: as acceptance criteria on every PRD, and as one PRD owning what no feature owns.
+
+Below the seam, each role drives a skill: `implementer` → `/implement` + `/tdd`; `reviewer` → the two axes of `/code-review`; `fixer` and `qa` → `/diagnosing-bugs` on anything broken; `decider` → `/research`; the orchestrator → `/resolving-merge-conflicts`. They are vendored at a commit recorded in `ORC2_SKILLS_PIN`, and `orc2 doctor` reports when upstream moves. The generated `docs/agents/flow.md` is the full map.
+
+Two things `orc2` handles that a plain copy would get wrong:
+
+- **User-only skills cannot be invoked by an agent.** Upstream ships `/implement` with `disable-model-invocation: true`, so a role prompt citing it dangles. orc2 strips the flag on the way in and records in the file that it did. `orc2 doctor` fails if any cited skill is still user-only.
+- **`/implement` closes out by running `/code-review`, which would be self-approval.** orc2's reviewer is a separate agent with no write tools — that is what stops "fix" meaning "delete the failing test". So the implementer runs `/code-review` as a **pre-flight self-check whose output is never a verdict**, and only the reviewer returns PASS.
+
+## The six roles
+
+| Role          | Reads | Writes | Job                                                              |
+| ------------- | ----- | ------ | ---------------------------------------------------------------- |
+| `implementer` | ✓     | ✓      | builds one issue, test-first, in its own worktree                 |
+| `reviewer`    | ✓     | ✗      | judges it against acceptance criteria; **no tools that could fix** |
+| `fixer`       | ✓     | ✓      | applies findings; cannot approve its own work                      |
+| `qa`          | ✓     | ✓      | exercises a whole PRD end to end, once every issue has passed      |
+| `decider`     | ✓     | records | decides blockers on the human's behalf, with a reversible record  |
+| `explorer`    | ✓     | ✗      | one bounded lookup, cheap; for everyone except the reviewer        |
+
+The separation is the point. The reviewer physically cannot fix, so "fix" can never quietly mean "delete the failing test." The fixer cannot approve, so nothing self-certifies. The orchestrator runs the gate itself, so no agent's claim about tests is ever load-bearing.
+
+## What the interview decides
+
+- **Tracker** — `scratch` (markdown issues in-repo, no remote) or `github` (issues + labels + `gh`)
+- **Design contract** — `figma` (pixel-exact, MCP extraction), `lofi` (mocks are intent; gaps are triaged to the decider), or `none`
+- **Runner** — `claude` (native subagents) or `codex` (headless dispatch through the bridge)
+- **Mechanical backend** — run implementer/fixer/explorer on the same CLI, or offload them to `pi` or `codex` on cheaper models
+- **Models** — one per tier: build, judge, PRD-gate, scan
+- **The gate** — the commands the orchestrator runs itself, in order, as the only ground truth
+- **Concurrency** — 1 lane, or 2 paired by change surface
+- **Database** — `none`, `sqlite` (a file per lane; isolation is a path), or `postgres` (a database per lane, created and dropped around the run). Each engine renders its own isolation procedure and its own delete/drop guard, and the choice is seeded as decision record `001` so agents read it as a reversible decision rather than re-deciding it mid-issue.
+- **Generated artifacts and migrations** — whether a merge leaves stale output that must be regenerated before gating
+- **Notification** — Slack webhook, push, or terminal-only, once per run at the checkpoint
+- **Policy** — round cap, accessibility target, PRD build order
+
+Answers land in `.orc2/config.env`. Change any of them there and run `orc2 render` — no re-interview.
+
+Non-interactive: `orc2 init --answers my-answers.env`, or `orc2 init --yes` for defaults. See `answers.example.env`.
+
+## Prerequisites
+
+The `implementer` cites the `implement` and `tdd` skills, and `run-prd` cites `to-issues`. Those are separate skills, not part of this kit. `orc2 doctor` warns if they are unreachable. `orc2 init --vendor-skills` copies them from `~/.claude/skills` into the target, which is what you want when the runner has no global skill mechanism.
+
+## Design notes worth knowing before you change anything
+
+**The gate is run by the orchestrator, never by an agent.** Agent reports are claims. This is the single rule the whole thing rests on.
+
+**An empty agent report is a dead dispatch, not an empty result.** A backend out of credit exits zero with empty stdout, which reads as "clean run, nothing to do." The bridge exits 3 on empty output to make that loud — it once looked like a seventeen-minute hang and was a dead process.
+
+**Merge the integration branch into the lane, never the reverse.** Conflicts get resolved and re-gated inside the worktree, where failure is free. The integration branch only ever fast-forwards to something already proven.
+
+**A merged migration is not an applied migration.** The lane migrated its own database; the human's is still on the old schema. That gap shipped green gates and stranded real orders.
+
+**Generated files are why a clean fast-forward goes red.** They are untracked, so a merge cannot update them. Regenerate before gating, not after wondering why.
+
+**Capture the design reference once, before QA.** Design-tool APIs are rate-limited per account. A loop that fetches per round exhausts the budget and reports "unverified" three times.
+
+**No agent picks a dependency or a backend.** A third-party library, an engine, a queue, a provider — each goes to the `decider` first, and the reviewer treats a new manifest entry with no record behind it as a blocking finding. The implementer works down a ladder (does it need to exist → already in the codebase → standard library → native platform → already-installed dependency → *only then* ask) and reports rather than reaching. A dependency chosen mid-issue is invisible to review because it compiles, and expensive at exactly the point someone wants it gone.
+
+**Escalation is success.** A blocked issue surfaced to a human is the pipeline working. A green issue that does not do what it claims is the pipeline failing.

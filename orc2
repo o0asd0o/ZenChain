@@ -1,0 +1,902 @@
+#!/usr/bin/env bash
+# orc2 — install the six-agent implementation pipeline into a project.
+#
+#   orc2 init [target-dir]      interactive setup, then render
+#   orc2 render [target-dir]    re-render from .orc2/config.env (after editing it)
+#   orc2 doctor [target-dir]    check the install and its backends
+#
+# Flags: --answers FILE   load answers, skip the interview
+#        --yes            accept every default, skip the interview
+#        --vendor-skills  copy skills from ~/.claude/skills instead of fetching upstream
+#
+# Everything the interview asks becomes a variable in <target>/.orc2/config.env.
+# Edit that file and `orc2 render` to change any decision later.
+set -euo pipefail
+
+# Byte-wise locale. Every pattern in this script is ASCII, while the templates
+# and the fetched skills are UTF-8 — and BSD sed/grep abort with "RE error:
+# illegal byte sequence" on multibyte input unless the locale is C. Rendering
+# goes through perl, which passes bytes through regardless.
+export LC_ALL=C
+
+# Resolve through symlinks. This script is normally reached via a symlink on
+# PATH (~/.local/bin/orc2), and `dirname "$BASH_SOURCE"` gives the symlink's
+# directory, not the kit's — which sends TPL at a templates/ that does not exist
+# and half-renders before failing. `readlink -f` is not portable far enough back
+# on macOS, so walk the links.
+_src="${BASH_SOURCE[0]}"
+while [[ -L "$_src" ]]; do
+  _dir="$(cd -P "$(dirname "$_src")" && pwd)"
+  _src="$(readlink "$_src")"
+  [[ "$_src" != /* ]] && _src="$_dir/$_src"
+done
+ORC2_HOME="$(cd -P "$(dirname "$_src")" && pwd)"
+unset _src _dir
+TPL="$ORC2_HOME/templates"
+
+# Fail before writing anything if the kit is not where we think it is. A partial
+# render is worse than no render: it leaves an install that looks present and
+# is missing its roles.
+[[ -f "$TPL/ORCHESTRATOR.md" ]] || {
+  echo "orc2: cannot find templates at $TPL (resolved kit dir: $ORC2_HOME)." >&2
+  echo "orc2: the kit moved, or this copy was copied instead of symlinked. Re-link it:" >&2
+  echo "orc2:   ln -sf /path/to/orc2/orc2 ~/.local/bin/orc2" >&2
+  exit 2
+}
+UPSTREAM_SKILLS="${ORC2_UPSTREAM_SKILLS:-$HOME/.claude/skills}"
+
+CMD="${1:-help}"; shift || true
+TARGET="$PWD"; ANSWERS=""; ASSUME_YES=0; VENDOR=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --answers) ANSWERS="$2"; shift 2 ;;
+    --yes|-y)  ASSUME_YES=1; shift ;;
+    --vendor-skills) VENDOR=1; shift ;;
+    -*) echo "orc2: unknown flag $1" >&2; exit 2 ;;
+    *)  TARGET="$1"; shift ;;
+  esac
+done
+TARGET="$(cd "$TARGET" 2>/dev/null && pwd)" || { echo "orc2: no such directory" >&2; exit 2; }
+
+say()  { printf '%s\n' "$*"; }
+head2() { printf '\n\033[1m%s\033[0m\n' "$*"; }
+
+# ---------------------------------------------------------------- interview ---
+
+ask() { # ask VAR "prompt" "default"
+  local var="$1" prompt="$2" def="$3" ans
+  if [[ $ASSUME_YES -eq 1 ]]; then ans="$def"
+  else
+    printf '\033[36m%s\033[0m [%s]: ' "$prompt" "$def" >&2
+    read -r ans </dev/tty || ans=""
+    [[ -z "$ans" ]] && ans="$def"
+  fi
+  eval "$var=\$ans"
+  export "$var"
+}
+
+ask_choice() { # ask_choice VAR "prompt" default opt1 opt2 ...
+  local var="$1" prompt="$2" def="$3"; shift 3
+  local opts=("$@") i ans
+  if [[ $ASSUME_YES -eq 1 ]]; then export "$var=$def"; return; fi
+  printf '\n\033[36m%s\033[0m\n' "$prompt" >&2
+  for i in "${!opts[@]}"; do
+    printf '  %d) %s%s\n' "$((i+1))" "${opts[$i]}" \
+      "$([[ ${opts[$i]%% *} == "$def" ]] && echo '   (default)')" >&2
+  done
+  printf 'choice [%s]: ' "$def" >&2
+  read -r ans </dev/tty || ans=""
+  [[ -z "$ans" ]] && { export "$var=$def"; return; }
+  if [[ "$ans" =~ ^[0-9]+$ ]] && (( ans >= 1 && ans <= ${#opts[@]} )); then
+    export "$var=${opts[$((ans-1))]%% *}"
+  else
+    export "$var=$ans"
+  fi
+}
+
+detect_gate() {
+  if   [[ -f "$TARGET/vite.config.ts" ]] && grep -q vite-plus "$TARGET/package.json" 2>/dev/null; then
+    say 'vp check; vp run -r check; vp run -r test; vp run -r build'
+  elif [[ -f "$TARGET/package.json" ]]; then
+    say 'npm run lint; npm run typecheck; npm test'
+  elif [[ -f "$TARGET/Cargo.toml" ]]; then
+    say 'cargo fmt --check; cargo clippy -- -D warnings; cargo test'
+  elif [[ -f "$TARGET/go.mod" ]]; then
+    say 'gofmt -l .; go vet ./...; go test ./...'
+  else
+    say 'make check; make test'
+  fi
+}
+
+interview() {
+  head2 "orc2 — pipeline setup for $(basename "$TARGET")"
+  say "Every answer lands in .orc2/config.env. Edit it and re-run \`orc2 render\` to change your mind."
+
+  ask ORC2_PROJECT "Project name" "$(basename "$TARGET")"
+
+  ask_choice ORC2_TRACKER \
+    "Where do issues live?" scratch \
+    "scratch  — markdown files in-repo under .scratch/<feature>/issues/ (no remote, no gh)" \
+    "github   — GitHub issues, driven with the gh CLI"
+
+  ask_choice ORC2_DESIGN \
+    "What is the design contract for screen work?" none \
+    "none  — no visual reference; behaviour only" \
+    "figma — a Figma file is the contract; agents extract nodes via the Figma MCP" \
+    "lofi  — lo-fi mocks or sketches; every screen needs a design-triage pass first"
+
+  if [[ "$ORC2_DESIGN" == figma ]]; then
+    ask ORC2_FIGMA_FILE_KEY "Figma file key (from the /design/<key>/ URL segment)" ""
+    ask ORC2_FIGMA_ROOT_NODE "Root frame node id (e.g. 1:645), blank if none" ""
+  fi
+  if [[ "$ORC2_DESIGN" == lofi ]]; then
+    ask ORC2_LOFI_DIR "Directory holding the lo-fi mocks (committed, agent-readable)" "design/lofi"
+  fi
+
+  ask_choice ORC2_RUNNER \
+    "Which CLI runs the orchestrator and the judgement roles (reviewer, qa, decider)?" claude \
+    "claude — Claude Code; roles are native subagents in .claude/agents/" \
+    "codex  — Codex CLI; roles are dispatched headlessly through the orc2-agent bridge"
+
+  ask_choice ORC2_RUNNER_MECH \
+    "Which backend runs the mechanical roles (implementer, fixer, explorer)?" same \
+    "same  — the same CLI as above (simplest; one bill, one toolchain)" \
+    "pi    — pi CLI on cheap external models, via the orc2-agent bridge" \
+    "codex — Codex CLI, via the orc2-agent bridge"
+  [[ "$ORC2_RUNNER_MECH" == same ]] && ORC2_RUNNER_MECH="$ORC2_RUNNER" && export ORC2_RUNNER_MECH
+
+  head2 "Models"
+  if [[ "$ORC2_RUNNER" == claude ]]; then
+    ask ORC2_MODEL_JUDGE "Reviewer model (per-issue judgement, runs often)" "claude-opus-4-8"
+    ask ORC2_MODEL_GATE  "QA + decider model (gates a whole PRD)"            "claude-opus-5"
+  else
+    ask ORC2_MODEL_JUDGE "Reviewer model (blank = the CLI's configured default)" ""
+    ask ORC2_MODEL_GATE  "QA + decider model (blank = default)"                 ""
+  fi
+  if [[ "$ORC2_RUNNER_MECH" == claude ]]; then
+    ask ORC2_MODEL_BUILD "Implementer + fixer model" "claude-sonnet-5"
+    ask ORC2_MODEL_SCAN  "Explorer model (cheap, read-only lookups)" "haiku"
+  else
+    ask ORC2_MODEL_BUILD "Implementer + fixer model (backend-qualified, blank = default)" ""
+    ask ORC2_MODEL_SCAN  "Explorer model (blank = default)" ""
+  fi
+
+  head2 "The gate"
+  say "The orchestrator runs these itself after every implement and fix. Agent reports are never trusted in their place."
+  ask ORC2_GATE "Gate commands, semicolon-separated, in order" "$(detect_gate)"
+
+  ask ORC2_MAIN_BRANCH "Integration branch" \
+    "$(git -C "$TARGET" symbolic-ref --quiet --short HEAD 2>/dev/null || echo main)"
+  ask ORC2_WORKTREE_DIR "Where lane worktrees are created" ".worktrees"
+
+  ask_choice ORC2_LANES "How many issues may run concurrently?" 1 \
+    "1 — serial; simplest, no merge interleaving to reason about" \
+    "2 — two lanes, paired by change surface (the cap, not a target)"
+
+  ask_choice ORC2_DB "Which database does the test suite write to?" none \
+    "none     — no database; the gate touches no shared stateful service" \
+    "sqlite   — a file per lane; isolation is a path, nothing to provision" \
+    "postgres — a database per lane, created and dropped around the run"
+  case "$ORC2_DB" in
+    sqlite)
+      ask ORC2_DEV_DB      "The human's development database file (never deleted, never a lane target)" "data/${ORC2_PROJECT}.db"
+      ask ORC2_LANE_PREFIX "Lane database file prefix (the delete guard matches on it)" "data/lane-"
+      ask ORC2_DB_URI_VAR  "Env var holding the connection string or file path" "DATABASE_URI" ;;
+    postgres)
+      ask ORC2_DEV_DB      "The human's development database (never dropped, never a lane target)" "${ORC2_PROJECT}_dev"
+      ask ORC2_LANE_PREFIX "Lane database name prefix (the drop guard matches on it)" "${ORC2_PROJECT}_lane_"
+      ask ORC2_DB_URI_VAR  "Env var holding the connection string" "DATABASE_URI" ;;
+  esac
+  if [[ "$ORC2_DB" != none ]]; then
+    say "  → orc2 seeds a decision record for this choice, so an agent reads it as a"
+    say "    reversible decision rather than re-litigating the engine mid-issue."
+  fi
+
+  ask_choice ORC2_CODEGEN "Does the repo have generated artifacts or migrations a merge cannot update?" no \
+    "no  — nothing generated; a merge is complete on its own" \
+    "yes — types, clients, or ordered migration barrels must be regenerated after every merge"
+  if [[ "$ORC2_CODEGEN" == yes ]]; then
+    ask ORC2_CODEGEN_CMD  "Command that regenerates them" "npm run generate:types"
+    ask ORC2_MIGRATE_CMD  "Command that applies pending migrations (blank if none)" ""
+    ask ORC2_MIGRATE_STATUS_CMD "Command that lists pending migrations (blank if none)" ""
+    ask ORC2_GENERATED_PATHS "Generated paths that must be regenerated rather than hand-merged" "src/generated/"
+  fi
+
+  ask_choice ORC2_NOTIFY "How is the human told a run reached its checkpoint?" none \
+    "none  — the terminal report only" \
+    "slack — one message per run to a Slack Incoming Webhook" \
+    "push  — one push notification per run"
+  if [[ "$ORC2_NOTIFY" == slack ]]; then
+    ask ORC2_SLACK_ENV     "Env var holding the webhook URL" "SLACK_WEBHOOK_URL"
+    ask ORC2_SLACK_CHANNEL "Channel the webhook is bound to" "#${ORC2_PROJECT}"
+    ask ORC2_SLACK_MENTION "Slack member id to mention, e.g. U01ABCDEF (blank for none)" ""
+  fi
+
+  head2 "Policy"
+  ask ORC2_ROUND_CAP "Review→fix rounds per issue before escalating" "3"
+  ask ORC2_A11Y "Accessibility target the reference may not override" "WCAG 2.2 AA"
+  ask ORC2_BUILD_ORDER "PRD build order, blank if you have no fixed order" ""
+  ask ORC2_PIPELINE_DIR "Where ORCHESTRATOR.md is written (relative to the repo)" ".orc2"
+}
+
+# ------------------------------------------------------------- skill fetch ---
+
+# The upstream engineering skills the pipeline's roles actually invoke. Only
+# model-invocable ones are useful here: a skill carrying
+# `disable-model-invocation: true` can be run by a human typing `/name` but not
+# by an agent, so citing one in a role prompt is a dangling reference. `implement`
+# is the exception — upstream marks it user-only, and the patch below strips that
+# so the implementer can reach it. The rest are model-invocable as shipped.
+ORC2_SKILLS_SET="code-review diagnosing-bugs tdd research prototype codebase-design domain-modeling resolving-merge-conflicts implement"
+PATCH_INVOCABLE="implement"
+
+# Drop the `disable-model-invocation: true` line. Done with grep rather than
+# `sed -i` because BSD sed aborts with "RE error: illegal byte sequence" on the
+# UTF-8 in these files unless the locale happens to be right.
+strip_useronly() { # strip_useronly <file>
+  local f="$1" t
+  t="$(mktemp -t orc2-skill.XXXXXX)"
+  grep -v '^disable-model-invocation: true$' "$f" >"$t" && mv "$t" "$f" || rm -f "$t"
+}
+
+# Echoes a commit sha, or nothing. NEVER returns non-zero: it is called inside a
+# command substitution, where `set -o pipefail` would turn a network failure into
+# a hard exit of the whole script. `git ls-remote` first because the unauthenticated
+# GitHub API rate-limits quickly and then fails in ways that look like an outage.
+resolve_pin() { # resolve_pin [ref]
+  local ref="${1:-main}" sha=""
+  # The FULL ref path, not a bare name: `ls-remote <url> main` matches by suffix
+  # and returns `refs/heads/changeset-release/main` ahead of `refs/heads/main`,
+  # so taking the first line silently pins a release bot's branch.
+  sha="$(git ls-remote "https://github.com/${ORC2_SKILLS_REPO}.git" "refs/heads/${ref}" 2>/dev/null | awk '$2=="refs/heads/'"$ref"'"{print $1; exit}' || true)"
+  if [[ ! "$sha" =~ ^[a-f0-9]{40}$ ]]; then
+    sha="$( { curl -fsS -m 15 "https://api.github.com/repos/${ORC2_SKILLS_REPO}/commits/${ref}" 2>/dev/null || true; } \
+      | sed -n 's/^  "sha": "\([a-f0-9]\{40\}\)".*/\1/p' | head -1 || true)"
+  fi
+  [[ "$sha" =~ ^[a-f0-9]{40}$ ]] && printf '%s' "$sha"
+  return 0
+}
+
+fetch_skills() { # fetch_skills <dest-dir>
+  local dest="$1" sha tmp s got=0
+  sha="$ORC2_SKILLS_PIN"
+  if [[ -z "$sha" || "$sha" == main ]]; then
+    sha="$(resolve_pin main || true)"
+    [[ -n "$sha" ]] || { say "  ! cannot reach github to pin ${ORC2_SKILLS_REPO} — skipping skill fetch."
+                         say "    The role prompts cite these skills; install them by hand or re-run \`orc2 render\` online."
+                         return 0; }
+    say "  pinned ${ORC2_SKILLS_REPO} at ${sha:0:12}"
+  fi
+  export ORC2_SKILLS_PIN="$sha"
+
+  # Cache by sha: a pinned commit's tarball never changes, so re-renders and
+  # extra lanes cost nothing and work offline once fetched.
+  local cache="${XDG_CACHE_HOME:-$HOME/.cache}/orc2"
+  mkdir -p "$cache"
+  tmp="$cache/${ORC2_SKILLS_REPO//\//-}-${sha}.tgz"
+  if [[ ! -s "$tmp" ]]; then
+    if ! curl -fsSL -m 60 "https://codeload.github.com/${ORC2_SKILLS_REPO}/tar.gz/${sha}" -o "$tmp.part" 2>/dev/null; then
+      say "  ! download failed for ${ORC2_SKILLS_REPO}@${sha:0:12} — skipping skill fetch"
+      rm -f "$tmp.part"; return 0
+    fi
+    mv "$tmp.part" "$tmp"
+  fi
+
+  mkdir -p "$dest"
+  for s in $ORC2_SKILLS_SET; do
+    if tar -xzf "$tmp" -C "$dest" --strip-components=3 "skills-$sha/skills/engineering/$s" 2>/dev/null; then
+      got=$((got + 1))
+      # A user-only skill cannot be invoked by an agent. Strip the flag on the
+      # ones a role prompt names, and record that the file was modified.
+      case " $PATCH_INVOCABLE " in *" $s "*)
+        if grep -q '^disable-model-invocation: true' "$dest/$s/SKILL.md" 2>/dev/null; then
+          strip_useronly "$dest/$s/SKILL.md"
+          printf '\n<!-- orc2: upstream ships this skill as user-only (`disable-model-invocation: true`).\n     That flag is stripped here because a pipeline role must invoke it. -->\n' \
+            >>"$dest/$s/SKILL.md"
+          say "  patched $s (was user-only; a role must invoke it)"
+        fi ;;
+      esac
+    else
+      say "  ! $s not found in ${ORC2_SKILLS_REPO}@${sha:0:12}"
+    fi
+  done
+  say "  vendored $got skill(s) into ${dest#$TARGET/} at ${sha:0:12}"
+}
+
+# ------------------------------------------------------------------ render ---
+
+# Derived values the templates use directly.
+derive() {
+  # Optional answers default before anything reads them.
+  : "${ORC2_DB:=none}" "${ORC2_CODEGEN:=no}" "${ORC2_LANES:=1}" "${ORC2_ROUND_CAP:=3}"
+  # ORC2_DB was yes/no before the engine choice existed; keep old configs working.
+  [[ "$ORC2_DB" == yes ]] && ORC2_DB=postgres
+  [[ "$ORC2_DB" == no  ]] && ORC2_DB=none
+  : "${ORC2_DESIGN:=none}" "${ORC2_TRACKER:=scratch}" "${ORC2_NOTIFY:=none}"
+  : "${ORC2_RUNNER:=claude}" "${ORC2_RUNNER_MECH:=$ORC2_RUNNER}"
+  : "${ORC2_MAIN_BRANCH:=main}" "${ORC2_WORKTREE_DIR:=.worktrees}" "${ORC2_PIPELINE_DIR:=.orc2}"
+  : "${ORC2_A11Y:=WCAG 2.2 AA}" "${ORC2_PROJECT:=$(basename "$TARGET")}"
+  : "${ORC2_MODEL_BUILD:=}" "${ORC2_MODEL_JUDGE:=}" "${ORC2_MODEL_GATE:=}" "${ORC2_MODEL_SCAN:=}"
+  : "${ORC2_FIGMA_FILE_KEY:=}" "${ORC2_FIGMA_ROOT_NODE:=}" "${ORC2_LOFI_DIR:=design/lofi}"
+  : "${ORC2_DB_URI_VAR:=DATABASE_URI}"
+  # Engine-dependent values default FROM the project name, never to empty. An
+  # empty ORC2_LANE_PREFIX renders a drop guard reading "only if its name begins
+  # ``", which matches every database including the human's — so the two values
+  # the guard depends on are also hard-checked below.
+  # A PostgreSQL identifier is only safe unquoted as [a-z_][a-z0-9_]*. A dash
+  # survives `createdb` (which quotes internally) but fails in raw SQL —
+  # `DROP DATABASE my-app_lane_x` is a syntax error — so provisioning works and
+  # teardown breaks. Slugify the default so nobody meets that by accident. File
+  # paths have no such rule, so SQLite keeps the name as typed.
+  export ORC2_DB_SLUG="$(printf '%s' "$ORC2_PROJECT" | tr '[:upper:]' '[:lower:]' \
+    | sed 's/[^a-z0-9]\{1,\}/_/g; s/^_\{1,\}//; s/_\{1,\}$//; s/^\([0-9]\)/db_\1/')"
+  : "${ORC2_DB_SLUG:=app}"
+  case "$ORC2_DB" in
+    postgres) : "${ORC2_DEV_DB:=${ORC2_DB_SLUG}_dev}"      "${ORC2_LANE_PREFIX:=${ORC2_DB_SLUG}_lane_}" ;;
+    sqlite)   : "${ORC2_DEV_DB:=data/${ORC2_PROJECT}.db}"  "${ORC2_LANE_PREFIX:=data/lane-}" ;;
+    *)        : "${ORC2_DEV_DB:=}" "${ORC2_LANE_PREFIX:=}" ;;
+  esac
+  # `:=` above already repairs an explicitly-empty value, so the two emptiness
+  # checks are asserts guarding a future edit to that defaulting, not the primary
+  # defence. The overlap check is the one that fires on real input.
+  if [[ "$ORC2_DB" != none ]]; then
+    [[ -n "$ORC2_LANE_PREFIX" ]] || { say "orc2: ORC2_LANE_PREFIX is empty with ORC2_DB=$ORC2_DB. That renders a drop guard matching EVERY database. Set it and re-run." >&2; exit 2; }
+    [[ -n "$ORC2_DEV_DB"      ]] || { say "orc2: ORC2_DEV_DB is empty with ORC2_DB=$ORC2_DB. The pipeline cannot name the database it must never touch. Set it and re-run." >&2; exit 2; }
+    [[ "$ORC2_DEV_DB" == "$ORC2_LANE_PREFIX"* ]] && { say "orc2: ORC2_DEV_DB ('$ORC2_DEV_DB') starts with ORC2_LANE_PREFIX ('$ORC2_LANE_PREFIX'), so the development database matches the lane drop guard. Choose a prefix that cannot match it." >&2; exit 2; }
+  fi
+  : "${ORC2_CODEGEN_CMD:=}" "${ORC2_MIGRATE_CMD:=}" "${ORC2_MIGRATE_STATUS_CMD:=}" "${ORC2_GENERATED_PATHS:=}"
+  : "${ORC2_SLACK_MENTION:=}" "${ORC2_BUILD_ORDER:=}"
+  if [[ "$ORC2_NOTIFY" == slack ]]; then
+    : "${ORC2_SLACK_ENV:=SLACK_WEBHOOK_URL}" "${ORC2_SLACK_CHANNEL:=#${ORC2_PROJECT}}"
+  else
+    : "${ORC2_SLACK_ENV:=}" "${ORC2_SLACK_CHANNEL:=}"
+  fi
+  : "${ORC2_GATE:=$(detect_gate)}"
+  : "${ORC2_SKILLS_REPO:=mattpocock/skills}" "${ORC2_SKILLS_PIN:=}" "${ORC2_AGENTS_FILE:=}"
+  export ORC2_SKILLS_REPO ORC2_SKILLS_PIN ORC2_AGENTS_FILE
+  export ORC2_DB ORC2_CODEGEN ORC2_LANES ORC2_ROUND_CAP ORC2_DESIGN ORC2_TRACKER ORC2_NOTIFY \
+         ORC2_RUNNER ORC2_RUNNER_MECH ORC2_MAIN_BRANCH ORC2_WORKTREE_DIR ORC2_PIPELINE_DIR \
+         ORC2_A11Y ORC2_PROJECT ORC2_MODEL_BUILD ORC2_MODEL_JUDGE ORC2_MODEL_GATE ORC2_MODEL_SCAN \
+         ORC2_FIGMA_FILE_KEY ORC2_FIGMA_ROOT_NODE ORC2_LOFI_DIR ORC2_DEV_DB ORC2_LANE_PREFIX \
+         ORC2_DB_URI_VAR ORC2_CODEGEN_CMD ORC2_MIGRATE_CMD ORC2_MIGRATE_STATUS_CMD \
+         ORC2_GENERATED_PATHS ORC2_SLACK_ENV ORC2_SLACK_CHANNEL ORC2_SLACK_MENTION \
+         ORC2_BUILD_ORDER ORC2_GATE
+
+  local IFS=';' c out_list="" out_block=""
+  read -ra CMDS <<<"$ORC2_GATE"
+  for c in "${CMDS[@]}"; do
+    c="$(echo "$c" | sed 's/^ *//;s/ *$//')"; [[ -z "$c" ]] && continue
+    out_list+="\`$c\`, "
+    out_block+="$c"$'\n'
+  done
+  export ORC2_GATE_LIST="${out_list%, }"
+  export ORC2_GATE_BLOCK="${out_block%$'\n'}"
+  export ORC2_GATE_COUNT="${#CMDS[@]}"
+  export ORC2_GATE_FIRST="$(echo "${CMDS[0]}" | sed 's/^ *//;s/ *$//')"
+
+  case "$ORC2_TRACKER" in
+    scratch) export ORC2_ISSUE_GLOB=".scratch/<feature-slug>/issues/<NN>-<slug>.md"
+             export ORC2_ISSUE_ROOT=".scratch"
+             export ORC2_DECISIONS_DIR=".scratch/decisions"
+             export ORC2_STATUS_MECH="the \`Status:\` line in the issue file"
+             export ORC2_TRACKER_ONE_LINER="Local markdown — issues and PRDs live under \`.scratch/<feature-slug>/\`; no \`gh\`, no remote." ;;
+    github)  export ORC2_ISSUE_GLOB="GitHub issue #<N>"
+             export ORC2_ISSUE_ROOT="the tracker"
+             export ORC2_DECISIONS_DIR="docs/decisions"
+             export ORC2_STATUS_MECH="the issue's labels"
+             export ORC2_TRACKER_ONE_LINER="GitHub Issues, driven with the \`gh\` CLI." ;;
+  esac
+
+  export ORC2_LANES_MODE="$([[ "$ORC2_LANES" == 1 ]] && echo off || echo on)"
+  export ORC2_REF_DIR="$([[ "$ORC2_TRACKER" == scratch ]] && echo '.scratch/<prd>/reference' || echo 'docs/reference/<prd>')"
+  # A blank model id means "whatever the backend is configured to use". The
+  # bridge treats `inherit` as unset, and Claude Code accepts it natively.
+  [[ -z "$ORC2_MODEL_BUILD" ]] && export ORC2_MODEL_BUILD=inherit
+  [[ -z "$ORC2_MODEL_JUDGE" ]] && export ORC2_MODEL_JUDGE=inherit
+  [[ -z "$ORC2_MODEL_GATE"  ]] && export ORC2_MODEL_GATE=inherit
+  [[ -z "$ORC2_MODEL_SCAN"  ]] && export ORC2_MODEL_SCAN=inherit
+
+  # Can the backend running the implementer discover a skill by name?
+  export ORC2_SKILLS_MODE="$([[ "$ORC2_RUNNER_MECH" == claude ]] && echo native || echo vendored)"
+
+  # Which roles run outside the orchestrator's own CLI.
+  if   [[ "$ORC2_RUNNER" != claude ]];      then export ORC2_DELEGATION="bridge-all"
+  elif [[ "$ORC2_RUNNER_MECH" != claude ]]; then export ORC2_DELEGATION="bridge-mech"
+  else                                          export ORC2_DELEGATION="native"; fi
+
+  if [[ "$ORC2_LANES" == 1 ]]; then
+    export ORC2_LANES_SELECT_SUFFIX=""
+    export ORC2_LANES_PRD_CLAUSE="Run one issue at a time, start to merge, before selecting the next."
+  else
+    export ORC2_LANES_SELECT_SUFFIX=", then optionally a second under the pairing rules above"
+    export ORC2_LANES_PRD_CLAUSE="Two is a cap, not a target. Pair by change surface — two issues that edit the same file are not parallel work, however independent their dependencies look. Compare their \`## Relevant files\` before pairing."
+  fi
+
+  export ORC2_BUILD_ORDER_LINE="${ORC2_BUILD_ORDER:-no fixed order is recorded; take dependencies from each issue.}"
+  export ORC2_QA_REF_ARG="$([[ "$ORC2_DESIGN" == none ]] && echo "" || echo " and the reference directory")"
+  case "$ORC2_DB" in
+    postgres) export ORC2_DB_RELEASE_CLAUSE=", drop the lane's database — **only if its name begins \`$ORC2_LANE_PREFIX\`**"
+              export ORC2_DB_ENGINE_NAME="PostgreSQL"
+              export ORC2_DB_RATIONALE="What this commits the project to: a running server in every environment that runs tests, \`createdb\`/\`dropdb\` around every lane, and real write concurrency — so a concurrency test that passes here is evidence, not an artefact of the engine. The development database is \`$ORC2_DEV_DB\` and is never dropped or reset by an agent; lane databases are named \`$ORC2_LANE_PREFIX*\` and that prefix is the only thing the drop guard will act on." ;;
+    sqlite)   export ORC2_DB_RELEASE_CLAUSE=", delete the lane's database file — **only if its path begins \`$ORC2_LANE_PREFIX\`**"
+              export ORC2_DB_ENGINE_NAME="SQLite"
+              export ORC2_DB_RATIONALE="What this commits the project to: no server to run, and lane isolation that costs nothing more than a different file path — but also a single writer, so a test that asserts real write concurrency proves less here than it would on a server engine. Treat such a test as unproven rather than green. The development database file is \`$ORC2_DEV_DB\` and is never deleted by an agent; lane files are \`$ORC2_LANE_PREFIX*\` and that prefix is the only thing the delete guard will act on. The connection target is a path, so a lane whose \`.env\` edit silently failed falls back to the development file instead of failing to connect — verify the resolved path before every lane." ;;
+    *)        export ORC2_DB_RELEASE_CLAUSE=""
+              export ORC2_DB_ENGINE_NAME="none"
+              export ORC2_DB_RATIONALE="" ;;
+  esac
+  export ORC2_IMPL_PR_CLAUSE="$([[ "$ORC2_TRACKER" == github ]] \
+    && echo "The \`implement\` skill's PR-and-CI closeout is the orchestrator's job, not yours — do not run \`gh\`." \
+    || echo "The \`implement\` skill requires opening a pull request and polling CI before closeout. This repository has no remote and no CI. Do not run \`gh\`.")"
+  export ORC2_FIGMA_ROOT_CLAUSE="$([[ -n "$ORC2_FIGMA_ROOT_NODE" ]] && echo ", root frame \`$ORC2_FIGMA_ROOT_NODE\`" || echo "")"
+  export ORC2_SLACK_MENTION_CLAUSE="$([[ -n "$ORC2_SLACK_MENTION" ]] && echo ", opening the text with a mention of the human (\`<@$ORC2_SLACK_MENTION>\`)" || echo "")"
+  export ORC2_MENTION_LINE="$([[ -n "$ORC2_SLACK_MENTION" ]] && echo "<@$ORC2_SLACK_MENTION>" || echo "")"
+}
+
+# Expand {{VARS}}, then inline `<!-- orc2:include NAME -->` fragments, then expand again.
+expand() { perl -pe 's/\{\{(\w+)\}\}/exists $ENV{"ORC2_$1"} ? $ENV{"ORC2_$1"} : "{{$1}}"/ge' ; }
+
+# Fragments may themselves include fragments, so this recurses. Depth is
+# bounded by ORC2_INCLUDE_DEPTH so a template that includes itself fails loudly
+# instead of filling the disk.
+render() { # render <template-path> [depth]
+  local f="$1" depth="${2:-0}" line frag
+  if (( depth > 6 )); then printf '<!-- orc2: include depth exceeded at %s -->\n' "$f"; return; fi
+  expand <"$f" | while IFS= read -r line; do
+    if [[ "$line" =~ ^\<!--[[:space:]]*orc2:include[[:space:]]+([A-Za-z0-9_.-]+)[[:space:]]*--\>$ ]]; then
+      frag="$TPL/fragments/${BASH_REMATCH[1]}.md"
+      if [[ -f "$frag" ]]; then render "$frag" $((depth+1))
+      else printf '<!-- orc2: MISSING FRAGMENT %s -->\n' "${BASH_REMATCH[1]}"; fi
+    else
+      printf '%s\n' "$line"
+    fi
+  done
+}
+
+write_out() { # write_out <template> <dest>
+  mkdir -p "$(dirname "$2")"
+  render "$1" >"$2"
+  say "  wrote ${2#$TARGET/}"
+}
+
+save_config() {
+  mkdir -p "$TARGET/.orc2"
+  local v
+  { say "# orc2 pipeline config for $ORC2_PROJECT — edit, then run: orc2 render"
+    # printf %q so a value containing spaces, quotes, or arrows survives sourcing.
+    for v in $(env | grep '^ORC2_' | grep -vE '^ORC2_(GATE_LIST|GATE_BLOCK|GATE_COUNT|GATE_FIRST|ISSUE_GLOB|ISSUE_ROOT|DECISIONS_DIR|STATUS_MECH|LANES_MODE|LANES_SELECT_SUFFIX|LANES_PRD_CLAUSE|REF_DIR|MENTION_LINE|DELEGATION|BUILD_ORDER_LINE|QA_REF_ARG|DB_RELEASE_CLAUSE|IMPL_PR_CLAUSE|FIGMA_ROOT_CLAUSE|SLACK_MENTION_CLAUSE|DB_ENGINE_NAME|DB_RATIONALE|SKILLS_MODE|SEED_NUM|SEED_DATE|HOME|UPSTREAM_SKILLS|AGENT_MODEL|CODEX_APPROVAL|INCLUDE_DEPTH)=' \
+      | cut -d= -f1 | sort); do
+      # Plain double quotes stay hand-editable; %q is the fallback for values
+      # that would otherwise re-interpret when sourced.
+      if [[ "${!v}" == *['"$`\']* ]]; then printf '%s=%q\n' "$v" "${!v}"
+      else                                 printf '%s="%s"\n' "$v" "${!v}"; fi
+    done
+  } >"$TARGET/.orc2/config.env"
+  say "  wrote .orc2/config.env"
+}
+
+do_render() {
+  derive
+  head2 "Rendering into $TARGET"
+
+  write_out "$TPL/ORCHESTRATOR.md" "$TARGET/$ORC2_PIPELINE_DIR/ORCHESTRATOR.md"
+
+  # Role prompts — native location for the runner that spawns them.
+  local role
+  for role in reviewer qa decider; do
+    if [[ "$ORC2_RUNNER" == claude ]]; then write_out "$TPL/agents/$role.md" "$TARGET/.claude/agents/$role.md"
+    else                                    write_out "$TPL/agents/$role.md" "$TARGET/.orc2/agents/$role.md"; fi
+  done
+  for role in implementer fixer explorer; do
+    if [[ "$ORC2_RUNNER_MECH" == claude ]]; then write_out "$TPL/agents/$role.md" "$TARGET/.claude/agents/$role.md"
+    else                                        write_out "$TPL/agents/$role.md" "$TARGET/.orc2/agents/$role.md"; fi
+  done
+
+  # Reference docs go where the runner can actually discover them. A CLI with no
+  # skill mechanism gets plain files under .orc2/skills/, cited by path.
+  local SKILLDIR
+  if [[ "$ORC2_RUNNER" == claude ]]; then SKILLDIR="$TARGET/.claude/skills"; else SKILLDIR="$TARGET/.orc2/skills"; fi
+
+  # The bridge, whenever any role runs outside the orchestrator's own CLI.
+  if [[ "$ORC2_RUNNER" != claude || "$ORC2_RUNNER_MECH" != claude ]]; then
+    mkdir -p "$TARGET/.orc2/bin"
+    cp "$ORC2_HOME/bin/orc2-agent" "$TARGET/.orc2/bin/orc2-agent"
+    chmod +x "$TARGET/.orc2/bin/orc2-agent"
+    say "  wrote .orc2/bin/orc2-agent"
+    write_out "$TPL/skills/delegate/SKILL.md" "$SKILLDIR/delegate/SKILL.md"
+  fi
+
+  # Entry points. `plan-app` is the front door on a repo with nothing to run yet;
+  # run-prd and run-issue are useless until it has produced tickets.
+  if [[ "$ORC2_RUNNER" == claude ]]; then
+    write_out "$TPL/skills/plan-app/SKILL.md"  "$TARGET/.claude/skills/plan-app/SKILL.md"
+    write_out "$TPL/skills/run-issue/SKILL.md" "$TARGET/.claude/skills/run-issue/SKILL.md"
+    write_out "$TPL/skills/run-prd/SKILL.md"   "$TARGET/.claude/skills/run-prd/SKILL.md"
+  else
+    write_out "$TPL/skills/plan-app/SKILL.md"  "$TARGET/.codex/prompts/plan-app.md"
+    write_out "$TPL/skills/run-issue/SKILL.md" "$TARGET/.codex/prompts/run-issue.md"
+    write_out "$TPL/skills/run-prd/SKILL.md"   "$TARGET/.codex/prompts/run-prd.md"
+  fi
+
+  # Design skill, matched to the contract.
+  case "$ORC2_DESIGN" in
+    figma) write_out "$TPL/skills/figma-to-code/SKILL.md" "$SKILLDIR/figma-to-code/SKILL.md" ;;
+    lofi)  write_out "$TPL/skills/lofi-to-code/SKILL.md"  "$SKILLDIR/lofi-to-code/SKILL.md" ;;
+  esac
+
+  # The engineering skills the role prompts cite. Fetched at a pinned commit so a
+  # re-render is reproducible and `orc2 doctor` can report drift; --vendor-skills
+  # copies from the local install instead, for an offline setup.
+  local s
+  if [[ $VENDOR -eq 1 ]]; then
+    for s in $ORC2_SKILLS_SET; do
+      if [[ -d "$UPSTREAM_SKILLS/$s" ]]; then
+        mkdir -p "$SKILLDIR"; cp -R "$UPSTREAM_SKILLS/$s" "$SKILLDIR/"
+        strip_useronly "$SKILLDIR/$s/SKILL.md"
+        say "  copied local skill $s"
+      else
+        say "  ! $s not in $UPSTREAM_SKILLS — the role prompts citing it will dangle"
+      fi
+    done
+  else
+    fetch_skills "$SKILLDIR"
+  fi
+
+  # Conventions the role prompts cite.
+  write_out "$TPL/docs/issue-tracker-$ORC2_TRACKER.md" "$TARGET/docs/agents/issue-tracker.md"
+  write_out "$TPL/docs/triage-labels-$ORC2_TRACKER.md" "$TARGET/docs/agents/triage-labels.md"
+  write_out "$TPL/docs/domain.md"                     "$TARGET/docs/agents/domain.md"
+  write_out "$TPL/docs/flow.md"                       "$TARGET/docs/agents/flow.md"
+  # Read by implementer, fixer, and reviewer only. Deliberately NOT in the agent
+  # file: that loads into every session and every subagent, and explorer, qa and
+  # decider never write product code.
+  write_out "$TPL/docs/code-standards.md"             "$TARGET/docs/agents/code-standards.md"
+
+  mkdir -p "$TARGET/$ORC2_DECISIONS_DIR"
+  if [[ ! -f "$TARGET/$ORC2_DECISIONS_DIR/LOG.md" ]]; then
+    { say "# Decision log"; say ""
+      say "One line per record. The files in this directory are the numbering authority; this index is regenerable."
+      say ""
+    } >"$TARGET/$ORC2_DECISIONS_DIR/LOG.md"
+    say "  wrote $ORC2_DECISIONS_DIR/LOG.md"
+  fi
+
+  # Seed the engine choice as a real record, so agents read the stack as a
+  # reversible decision instead of re-litigating it mid-issue. Numbered from the
+  # files on disk, exactly as the decider numbers its own; never overwritten.
+  if [[ "$ORC2_DB" != none ]] && ! ls "$TARGET/$ORC2_DECISIONS_DIR"/*-database-engine.md >/dev/null 2>&1; then
+    local existing seed
+    existing="$(ls "$TARGET/$ORC2_DECISIONS_DIR" 2>/dev/null | grep -c '^[0-9][0-9][0-9]-' || true)"
+    seed="$(printf '%03d' $((existing + 1)))"
+    export ORC2_SEED_NUM="$seed" ORC2_SEED_DATE="${ORC2_SEED_DATE:-$(date +%F)}"
+    write_out "$TPL/decisions/database-engine.md" "$TARGET/$ORC2_DECISIONS_DIR/$seed-database-engine.md"
+    say "- [$seed: The project stores data in $ORC2_DB_ENGINE_NAME]($seed-database-engine.md) — seeded at setup, Stakes: high" \
+      >>"$TARGET/$ORC2_DECISIONS_DIR/LOG.md"
+  fi
+
+  write_agent_skills_block
+  # Re-save: the skills pin is resolved during render, not during the interview,
+  # so the first write of config.env cannot contain it. Without this, every
+  # render re-resolves against upstream main and the pin means nothing.
+  save_config
+}
+
+# Replace the marked block in one file, or append it if the markers are absent.
+# Everything the human wrote outside the markers survives.
+upsert_block() { # upsert_block <repo-relative-file> <body-file>
+  local f="$1" body="$2" tmp
+  if [[ -f "$TARGET/$f" ]] && grep -q 'orc2:agent-skills:start' "$TARGET/$f"; then
+    tmp="$(mktemp -t orc2-agents.XXXXXX)"
+    # The block is multi-line, so it reaches awk as a file: awk rejects a literal
+    # newline in a -v assignment.
+    awk -v bf="$body" '
+      /orc2:agent-skills:start/ { while ((getline l < bf) > 0) print l; skip=1; next }
+      /orc2:agent-skills:end/   { skip=0; next }
+      !skip { print }
+    ' "$TARGET/$f" >"$tmp"
+    mv "$tmp" "$TARGET/$f"
+    say "  updated the Agent skills block in $f"
+  else
+    [[ -s "$TARGET/$f" ]] && printf '\n' >>"$TARGET/$f"
+    cat "$body" >>"$TARGET/$f"
+    say "  added an Agent skills block to $f"
+  fi
+}
+
+# Delete a marked block. Used to migrate a repo where an earlier orc2 wrote the
+# block straight into CLAUDE.md — without this, both files carry it and they
+# drift apart on the next render.
+strip_block() { # strip_block <repo-relative-file>
+  local f="$1" tmp
+  [[ -f "$TARGET/$f" ]] && grep -q 'orc2:agent-skills:start' "$TARGET/$f" || return 0
+  tmp="$(mktemp -t orc2-strip.XXXXXX)"
+  awk '
+    /orc2:agent-skills:start/ { skip=1; next }
+    /orc2:agent-skills:end/   { skip=0; next }
+    !skip { print }
+  ' "$TARGET/$f" >"$tmp"
+  mv "$tmp" "$TARGET/$f"
+  say "  moved the Agent skills block out of $f (it now imports AGENTS.md)"
+}
+
+# The engineering skills read `docs/agents/*.md` for tracker, triage and doc
+# conventions, and find them through an `## Agent skills` section in the repo's
+# agent file.
+#
+# AGENTS.md is the single source: it is the cross-tool convention, so Codex and
+# the others read it directly. CLAUDE.md then imports it with `@AGENTS.md`,
+# because CLAUDE.md is the file Claude Code is documented to load and AGENTS.md
+# support is not something to assume. One source of truth, both toolchains reach
+# it, and switching ORC2_RUNNER later changes nothing.
+#
+# The previous version picked one file — CLAUDE.md if present, else AGENTS.md,
+# else it *created* AGENTS.md regardless of the runner. On a repo with neither
+# file and runner=claude that wrote the one file the runner may never load.
+write_agent_skills_block() {
+  local body
+  body="$(mktemp -t orc2-block.XXXXXX)"
+  render "$TPL/fragments/agent-skills-block.md" >"$body"
+
+  if [[ -n "$ORC2_AGENTS_FILE" ]]; then
+    # An explicit target is taken literally, wherever it points, with no import
+    # wiring: the human has said where this belongs.
+    upsert_block "$ORC2_AGENTS_FILE" "$body"
+    rm -f "$body"; return 0
+  fi
+
+  upsert_block "AGENTS.md" "$body"
+  strip_block  "CLAUDE.md"
+  ensure_import "CLAUDE.md"
+  rm -f "$body"
+}
+
+# Make CLAUDE.md pull in AGENTS.md. Appends rather than prepends so nothing the
+# human wrote moves; an import is positional only in that it must be on its own
+# line.
+ensure_import() { # ensure_import <repo-relative-file>
+  local f="$1"
+  if [[ -f "$TARGET/$f" ]] && grep -q '^@AGENTS\.md[[:space:]]*$' "$TARGET/$f"; then
+    return 0
+  fi
+  if [[ -s "$TARGET/$f" ]]; then
+    printf '\n<!-- orc2: the pipeline config lives in AGENTS.md, imported here so Claude Code loads it too. -->\n@AGENTS.md\n' >>"$TARGET/$f"
+    say "  added the AGENTS.md import to $f"
+  else
+    printf '<!-- orc2: AGENTS.md is the single source for this repo. This file imports it\n     so Claude Code loads it too; add your own notes below the import. -->\n@AGENTS.md\n' >"$TARGET/$f"
+    say "  created $f importing AGENTS.md"
+  fi
+}
+
+# ------------------------------------------------------------- next step ---
+
+# Count what actually exists, so the suggested next step is reachable. Telling a
+# human to run `/run-prd` on a repo with no tickets is worse than saying nothing:
+# it sends them at the pipeline before anything has decided what to build.
+intake_state() { # echoes: empty | specs-only | ready | building
+  local prds=0 issues=0 agentready=0
+  if [[ "$ORC2_TRACKER" == scratch ]]; then
+    prds="$(ls -d "$TARGET"/.scratch/*/PRD.md 2>/dev/null | wc -l | tr -d ' ')"
+    issues="$(ls "$TARGET"/.scratch/*/issues/*.md 2>/dev/null | wc -l | tr -d ' ')"
+    agentready="$(grep -rl 'ready-for-agent' "$TARGET"/.scratch/*/issues/ 2>/dev/null | wc -l | tr -d ' ')"
+  else
+    # Without hitting the network: a GitHub tracker's state is not knowable from
+    # disk, so fall back on whether any spec has been written down locally.
+    prds="$(ls "$TARGET"/docs/specs/*.md "$TARGET"/docs/prds/*.md 2>/dev/null | wc -l | tr -d ' ')"
+    issues=0; agentready=0
+  fi
+  if   (( agentready > 0 )); then echo building
+  elif (( issues > 0 ));     then echo ready
+  elif (( prds > 0 ));       then echo specs-only
+  else                            echo empty; fi
+}
+
+next_step() {
+  local state cmd_prefix
+  state="$(intake_state)"
+  if [[ "$ORC2_RUNNER" == claude ]]; then cmd_prefix="/"; else cmd_prefix="codex-prompt: "; fi
+
+  step() { printf '  %-2s %-21s %s\n' "$1" "$2" "$3"; }
+  cont() { printf '     %-21s %s\n' "" "$1"; }
+
+  head2 "Next step"
+  case "$state" in
+    empty)
+      say "This repo has no PRDs and no tickets, so there is nothing for the pipeline to run yet."
+      say "The pipeline builds tickets; it cannot invent them."
+      say ""
+      step 1. "${cmd_prefix}plan-app"       "the checklist for everything below — read this first"
+      step 2. "/grill-with-docs"            "one app-wide session: what is this app, and what has to"
+      cont                                  "be true for it to ship. Settles the stack, the domain"
+      cont                                  "vocabulary, the trust boundaries, and what release means"
+      step 3. "${cmd_prefix}plan-app"       "decompose into PRD areas: foundation, core domain,"
+      cont                                  "security, observability, release. Nine to adapt"
+      step 4. "/to-spec"                    "one spec per area (your install may name it /to-prd)"
+      step 5. "/to-tickets"                 "slice each spec (your install may name it /to-issues)"
+      step 6. "${cmd_prefix}run-prd <area>" "only now — the pipeline, one area at a time"
+      say ""
+      say "Keep steps 2 and 3 in one context window: the areas have to come out of the same thinking."
+      say "Do not let an agent settle the stack or the threat model. Those are yours, in step 2."
+      ;;
+    specs-only)
+      say "Specs exist, but nothing is sliced. The pipeline needs tickets."
+      say ""
+      step 1. "/to-tickets"                 "slice each spec into tracer-bullet tickets (or /to-issues)"
+      cont                                  "each needs acceptance criteria, ## Depends on, ## Relevant files"
+      step 2. "edit .orc2/config.env"       "record the area order as ORC2_BUILD_ORDER, then: orc2 render"
+      step 3. "${cmd_prefix}run-prd <area>" "the pipeline"
+      ;;
+    ready)
+      say "Tickets exist, but none are marked ready for an agent."
+      say ""
+      step 1. "/triage"                     "move them through the triage roles until they are ready"
+      cont                                  "(skip what /to-tickets produced — already agent-ready)"
+      step 2. "${cmd_prefix}run-prd <area>" "the pipeline"
+      ;;
+    building)
+      say "Agent-ready tickets exist. The pipeline can run."
+      say ""
+      step "" "${cmd_prefix}run-prd <area>"  "a whole PRD, then stop at the human checkpoint"
+      step "" "${cmd_prefix}run-issue <NN>"  "one issue, then stop"
+      ;;
+  esac
+  [[ "$ORC2_RUNNER" == claude ]] || say $'\nCodex has no slash commands: pass the file, e.g. codex "$(cat .codex/prompts/run-prd.md)".'
+}
+
+# ------------------------------------------------------------------ doctor ---
+
+do_doctor() {
+  head2 "orc2 doctor — $TARGET"
+  local fail=0
+  [[ -f "$TARGET/.orc2/config.env" ]] || { say "FAIL  no .orc2/config.env — run \`orc2 init\` here"; return 1; }
+  # shellcheck disable=SC1091
+  set -a; . "$TARGET/.orc2/config.env"; set +a; derive
+
+  say "S  project=$ORC2_PROJECT tracker=$ORC2_TRACKER design=$ORC2_DESIGN runner=$ORC2_RUNNER/$ORC2_RUNNER_MECH lanes=$ORC2_LANES db=$ORC2_DB"
+
+  [[ -f "$TARGET/$ORC2_PIPELINE_DIR/ORCHESTRATOR.md" ]] \
+    && say "PASS  orchestrator present" || { say "FAIL  ORCHESTRATOR.md missing — run \`orc2 render\`"; fail=1; }
+
+  local role loc
+  for role in implementer fixer explorer reviewer qa decider; do
+    loc=""
+    [[ -f "$TARGET/.claude/agents/$role.md" ]] && loc=".claude/agents"
+    [[ -f "$TARGET/.orc2/agents/$role.md" ]]    && loc="${loc:+$loc + }.orc2/agents"
+    [[ -n "$loc" ]] && say "PASS  role $role ($loc)" || { say "FAIL  role $role missing"; fail=1; }
+  done
+
+  local b
+  for b in "$ORC2_RUNNER" "$ORC2_RUNNER_MECH"; do
+    command -v "$b" >/dev/null && say "PASS  backend CLI $b on PATH" \
+      || { say "FAIL  backend CLI $b not on PATH"; fail=1; }
+  done
+
+  # Scope IFS to the read only. A `local IFS=';'` here would stay in effect for
+  # the rest of the function and silently stop every later `for x in $list` from
+  # splitting on whitespace.
+  local c
+  IFS=';' read -ra CMDS <<<"$ORC2_GATE"
+  for c in "${CMDS[@]}"; do
+    c="$(echo "$c" | sed 's/^ *//;s/ *$//')"; [[ -z "$c" ]] && continue
+    command -v "${c%% *}" >/dev/null && say "PASS  gate cmd runnable: $c" \
+      || { say "WARN  gate cmd not on PATH: $c"; }
+  done
+
+  case "$ORC2_DB" in
+    postgres)
+      if [[ "$ORC2_DEV_DB$ORC2_LANE_PREFIX" =~ [^a-z0-9_] ]]; then
+        say "WARN  a database name contains a character PostgreSQL needs quoted ($ORC2_DEV_DB / $ORC2_LANE_PREFIX*)."
+        say "      createdb and dropdb quote for you, but raw SQL does not: DROP DATABASE ${ORC2_LANE_PREFIX}x is a syntax error."
+        say "      Either use [a-z0-9_] only, or double-quote the name in every hand-written statement."
+      else
+        say "PASS  database names are safe unquoted in raw SQL"
+      fi
+      command -v createdb >/dev/null && say "PASS  createdb present (lane provisioning)" \
+        || say "WARN  createdb not on PATH — lanes cannot provision their own database; run serially or install the client tools"
+      command -v dropdb   >/dev/null || say "WARN  dropdb not on PATH — lane databases will accumulate" ;;
+    sqlite)
+      command -v sqlite3 >/dev/null && say "PASS  sqlite3 present" \
+        || say "WARN  sqlite3 not on PATH — fine if the app bundles its own driver, but you cannot inspect a lane's database by hand"
+      [[ -n "$ORC2_DEV_DB" && -e "$TARGET/$ORC2_DEV_DB" ]] && say "PASS  development database file exists: $ORC2_DEV_DB" \
+        || say "WARN  development database file $ORC2_DEV_DB does not exist yet — the first migration creates it" ;;
+  esac
+  if [[ "$ORC2_DB" != none ]]; then
+    ls "$TARGET/$ORC2_DECISIONS_DIR"/*-database-engine.md >/dev/null 2>&1 \
+      && say "PASS  engine decision record present ($ORC2_DB_ENGINE_NAME)" \
+      || say "WARN  no engine decision record — run \`orc2 render\` so agents read the choice as a decision"
+  fi
+
+  if [[ "$ORC2_DESIGN" == figma ]]; then
+    curl -sS -m 3 -o /dev/null http://127.0.0.1:3845/mcp 2>/dev/null \
+      && say "PASS  Figma Dev Mode MCP reachable" \
+      || say "WARN  Figma MCP not reachable at 127.0.0.1:3845 — enable Dev Mode MCP in the Figma desktop app before a screen issue"
+  fi
+  if [[ "$ORC2_NOTIFY" == slack ]]; then
+    [[ -n "${!ORC2_SLACK_ENV:-}" ]] && say "PASS  $ORC2_SLACK_ENV is set" \
+      || say "WARN  $ORC2_SLACK_ENV unset — the run will fall back to a terminal-only report"
+  fi
+  # Every skill a role prompt names must be reachable AND agent-invocable.
+  local s d missing=0 useronly=0
+  for s in $ORC2_SKILLS_SET; do
+    d=""
+    for c in "$TARGET/.claude/skills/$s" "$TARGET/.orc2/skills/$s" "$UPSTREAM_SKILLS/$s"; do
+      [[ -d "$c" ]] && { d="$c"; break; }
+    done
+    if [[ -z "$d" ]]; then missing=$((missing + 1)); say "WARN  skill $s not reachable — role prompts citing it will dangle"; continue; fi
+    if grep -q '^disable-model-invocation: true' "$d/SKILL.md" 2>/dev/null; then
+      useronly=$((useronly + 1))
+      say "FAIL  skill $s is user-only ($d) — an agent cannot invoke it; re-run \`orc2 render\` to vendor a patched copy"
+      fail=1
+    fi
+  done
+  [[ $missing -eq 0 && $useronly -eq 0 ]] && say "PASS  all $(echo $ORC2_SKILLS_SET | wc -w | tr -d ' ') cited skills reachable and agent-invocable"
+
+  if [[ -n "$ORC2_SKILLS_PIN" ]]; then
+    local head_sha
+    head_sha="$(resolve_pin main || true)"
+    if [[ -z "$head_sha" ]]; then
+      say "INFO  pinned $ORC2_SKILLS_REPO@${ORC2_SKILLS_PIN:0:12} (offline — cannot check for drift)"
+    elif [[ "$head_sha" == "$ORC2_SKILLS_PIN" ]]; then
+      say "PASS  skills pinned at $ORC2_SKILLS_REPO@${ORC2_SKILLS_PIN:0:12} (current)"
+    else
+      say "INFO  skills pinned at ${ORC2_SKILLS_PIN:0:12}; upstream main is now ${head_sha:0:12}."
+      say "      Re-pin deliberately: clear ORC2_SKILLS_PIN in .orc2/config.env and run \`orc2 render\` — never mid-run."
+    fi
+  else
+    say "WARN  no ORC2_SKILLS_PIN recorded — the vendored skills are unversioned"
+  fi
+
+  [[ -f "$TARGET/docs/agents/flow.md" ]] && say "PASS  flow doc present (the seam is documented)" \
+    || say "WARN  docs/agents/flow.md missing — run \`orc2 render\`"
+  if [[ -n "$ORC2_AGENTS_FILE" ]]; then
+    grep -q 'orc2:agent-skills:start' "$TARGET/$ORC2_AGENTS_FILE" 2>/dev/null \
+      && say "PASS  Agent skills block present in $ORC2_AGENTS_FILE (explicit target)" \
+      || say "WARN  no Agent skills block in $ORC2_AGENTS_FILE — run \`orc2 render\`"
+  else
+    grep -q 'orc2:agent-skills:start' "$TARGET/AGENTS.md" 2>/dev/null \
+      && say "PASS  Agent skills block present in AGENTS.md" \
+      || say "WARN  no Agent skills block in AGENTS.md — the skills find their config through it"
+    # CLAUDE.md is the file Claude Code is documented to load. Without the import,
+    # a runner=claude repo can carry a perfectly good AGENTS.md the model never sees.
+    if grep -q '^@AGENTS\.md[[:space:]]*$' "$TARGET/CLAUDE.md" 2>/dev/null; then
+      say "PASS  CLAUDE.md imports AGENTS.md"
+    elif [[ "$ORC2_RUNNER" == claude ]]; then
+      say "FAIL  CLAUDE.md does not import AGENTS.md, so the block may never reach the model."
+      say "      Run \`orc2 render\`, or add a line reading exactly: @AGENTS.md"
+      fail=1
+    else
+      say "INFO  CLAUDE.md does not import AGENTS.md (runner is $ORC2_RUNNER, which reads AGENTS.md directly)"
+    fi
+    if grep -q 'orc2:agent-skills:start' "$TARGET/CLAUDE.md" 2>/dev/null; then
+      say "FAIL  the block is in BOTH CLAUDE.md and AGENTS.md — they will drift. Run \`orc2 render\`."
+      fail=1
+    fi
+  fi
+
+  git -C "$TARGET" rev-parse --git-dir >/dev/null 2>&1 \
+    && say "PASS  git repository (worktrees available)" \
+    || { say "FAIL  not a git repository — lanes need worktrees"; fail=1; }
+
+  [[ $fail -eq 0 ]] && say $'\nP  install usable' || say $'\nR  install incomplete, see FAIL lines above'
+  next_step
+  return $fail
+}
+
+# -------------------------------------------------------------------- main ---
+
+case "$CMD" in
+  init)
+    if [[ -n "$ANSWERS" ]]; then set -a; . "$ANSWERS"; set +a; else interview; fi
+    derive; save_config; do_render
+    head2 "Done"
+    next_step
+    say ""
+    say "Then: orc2 doctor $TARGET"
+    ;;
+  render)
+    [[ -f "$TARGET/.orc2/config.env" ]] || { say "orc2: no .orc2/config.env in $TARGET — run \`orc2 init\` first" >&2; exit 2; }
+    set -a; . "$TARGET/.orc2/config.env"; set +a
+    do_render ;;
+  doctor) do_doctor ;;
+  help|-h|--help) awk 'NR>1 && /^#/{sub(/^# ?/,""); print; next} NR>1{exit}' "$0" ;;
+  *) say "orc2: unknown command '$CMD' — try \`orc2 help\`" >&2; exit 2 ;;
+esac
