@@ -4,6 +4,8 @@
 #   orc2 init [target-dir]      interactive setup, then render
 #   orc2 render [target-dir]    re-render from .orc2/config.env (after editing it)
 #   orc2 doctor [target-dir]    check the install and its backends
+#   orc2 skills [--global]      show where each skill lives; --global installs the
+#                               planning set into ~/.claude/skills, for every project
 #
 # Flags: --answers FILE   load answers, skip the interview
 #        --yes            accept every default, skip the interview
@@ -46,12 +48,13 @@ TPL="$ORC2_HOME/templates"
 UPSTREAM_SKILLS="${ORC2_UPSTREAM_SKILLS:-$HOME/.claude/skills}"
 
 CMD="${1:-help}"; shift || true
-TARGET="$PWD"; ANSWERS=""; ASSUME_YES=0; VENDOR=0
+TARGET="$PWD"; ANSWERS=""; ASSUME_YES=0; VENDOR=0; SKILLS_ARG=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --answers) ANSWERS="$2"; shift 2 ;;
     --yes|-y)  ASSUME_YES=1; shift ;;
     --vendor-skills) VENDOR=1; shift ;;
+    --global)  SKILLS_ARG="--global"; shift ;;
     -*) echo "orc2: unknown flag $1" >&2; exit 2 ;;
     *)  TARGET="$1"; shift ;;
   esac
@@ -232,6 +235,20 @@ interview() {
 ORC2_SKILLS_SET="code-review diagnosing-bugs tdd research prototype codebase-design domain-modeling resolving-merge-conflicts implement"
 PATCH_INVOCABLE="implement"
 
+# The planning half, which a HUMAN runs before the pipeline has anything to build.
+# `plan-app` names every one of these, so without them its instructions dangle —
+# which is the state a fresh machine is in. They stay user-only on purpose: they
+# exist to interview a person, and an agent must not invoke them.
+#
+# `grilling` is here because `grill-with-docs` is a two-line skill whose body is
+# "Run a /grilling session" — vendoring the one without the other installs a
+# pointer to nothing.
+ORC2_SKILLS_FRONTEND="grill-with-docs grilling to-spec to-tickets triage wayfinder handoff"
+
+# Upstream files these under several category directories, and the front-end set
+# spans two of them. Search rather than hardcode `engineering`.
+SKILL_CATEGORIES="engineering productivity misc in-progress"
+
 # Drop the `disable-model-invocation: true` line. Done with grep rather than
 # `sed -i` because BSD sed aborts with "RE error: illegal byte sequence" on the
 # UTF-8 in these files unless the locale happens to be right.
@@ -285,12 +302,9 @@ fetch_skills() { # fetch_skills <dest-dir>
   fi
 
   mkdir -p "$dest"
+  local skipped=0
   for s in $ORC2_SKILLS_SET; do
-    # Codeload unpacks under <repo-name>-<sha>/, not a fixed "skills-<sha>/".
-    # Hardcoding the name silently extracted nothing for any ORC2_SKILLS_REPO
-    # whose repo is not literally called "skills" — got=0, and a render that
-    # "succeeded" with dangling skill references in every role prompt.
-    if tar -xzf "$tmp" -C "$dest" --strip-components=3 "${ORC2_SKILLS_REPO##*/}-$sha/skills/engineering/$s" 2>/dev/null; then
+    if extract_skill "$tmp" "$sha" "$s" "$dest"; then
       got=$((got + 1))
       # A user-only skill cannot be invoked by an agent. Strip the flag on the
       # ones a role prompt names, and record that the file was modified.
@@ -306,7 +320,40 @@ fetch_skills() { # fetch_skills <dest-dir>
       say "  ! $s not found in ${ORC2_SKILLS_REPO}@${sha:0:12}"
     fi
   done
+
+  # The planning skills a human runs. Vendor one ONLY when it is not already
+  # installed globally — a local duplicate would shadow the user's own copy and
+  # then quietly go stale against it.
+  for s in $ORC2_SKILLS_FRONTEND; do
+    if [[ -d "$UPSTREAM_SKILLS/$s" ]]; then
+      rm -rf "$dest/$s"     # a copy from an earlier run is now redundant
+      skipped=$((skipped + 1)); continue
+    fi
+    if extract_skill "$tmp" "$sha" "$s" "$dest"; then
+      got=$((got + 1))
+    else
+      say "  ! planning skill $s not found in ${ORC2_SKILLS_REPO}@${sha:0:12}"
+    fi
+  done
+
   say "  vendored $got skill(s) into ${dest#$TARGET/} at ${sha:0:12}"
+  (( skipped > 0 )) && say "  skipped $skipped planning skill(s) already installed in $UPSTREAM_SKILLS"
+  return 0
+}
+
+# Upstream files skills under several category directories, and the two sets span
+# different ones — `grilling` is under productivity/ while `grill-with-docs`, which
+# depends on it, is under engineering/. Try each category rather than assume one.
+extract_skill() { # extract_skill <tarball> <sha> <name> <dest>
+  local tarball="$1" sha="$2" s="$3" dest="$4" cat
+  for cat in $SKILL_CATEGORIES; do
+    # Codeload unpacks under <repo-name>-<sha>/, not a fixed "skills-<sha>/".
+    if tar -xzf "$tarball" -C "$dest" --strip-components=3 \
+         "${ORC2_SKILLS_REPO##*/}-$sha/skills/$cat/$s" 2>/dev/null; then
+      return 0
+    fi
+  done
+  return 1
 }
 
 # ------------------------------------------------------------------ render ---
@@ -860,6 +907,67 @@ next_step() {
   [[ "$ORC2_RUNNER" == claude ]] || say $'\nCodex has no slash commands: pass the file, e.g. codex "$(cat .codex/prompts/run-prd.md)".'
 }
 
+# ------------------------------------------------------------------ skills ---
+
+# Where a skill is actually reached from. Project-local FIRST, because that is the
+# precedence the runner uses — and because the local copy of an agent-invocable
+# skill is the *patched* one (`implement` has its user-only flag stripped). Naming
+# the global copy would point at a file that cannot be invoked.
+skill_where() { # skill_where <name> ; echoes <dir>|global|missing
+  local s="$1" c
+  for c in "$TARGET/.claude/skills" "$TARGET/.orc2/skills"; do
+    [[ -d "$c/$s" ]] && { echo "${c#$TARGET/}"; return; }
+  done
+  [[ -d "$UPSTREAM_SKILLS/$s" ]] && { echo "global"; return; }
+  echo missing
+}
+
+do_skills() { # do_skills [--global]
+  local install_global="${1:-}" s where missing="" sha tarball
+  head2 "Skills — $TARGET"
+  say "Pipeline roles drive these (agent-invocable):"
+  for s in $ORC2_SKILLS_SET; do printf '  %-26s %s\n' "$s" "$(skill_where "$s")"; done
+  say ""
+  say "You drive these, before the pipeline has anything to build (user-only):"
+  for s in $ORC2_SKILLS_FRONTEND; do
+    where="$(skill_where "$s")"
+    printf '  %-26s %s\n' "$s" "$where"
+    [[ "$where" == missing ]] && missing="$missing $s"
+  done
+
+  if [[ "$install_global" != "--global" ]]; then
+    say ""
+    if [[ -n "$missing" ]]; then
+      say "Missing:$missing"
+      say "Install them for every project:  orc2 skills --global"
+    else
+      say "All present. \`orc2 skills --global\` would install the planning set for every project."
+    fi
+    return 0
+  fi
+
+  # --global: install into the user's own skills directory, so every project gets
+  # them and orc2 stops vendoring per-project copies.
+  sha="${ORC2_SKILLS_PIN:-$(resolve_pin main || true)}"
+  [[ -n "$sha" ]] || { say "orc2: cannot reach github to resolve a commit — try again online" >&2; return 1; }
+  tarball="${XDG_CACHE_HOME:-$HOME/.cache}/orc2/${ORC2_SKILLS_REPO//\//-}-${sha}.tgz"
+  if [[ ! -s "$tarball" ]]; then
+    mkdir -p "$(dirname "$tarball")"
+    curl -fsSL -m 60 "https://codeload.github.com/${ORC2_SKILLS_REPO}/tar.gz/${sha}" -o "$tarball.part" \
+      || { say "orc2: download failed" >&2; rm -f "$tarball.part"; return 1; }
+    mv "$tarball.part" "$tarball"
+  fi
+  mkdir -p "$UPSTREAM_SKILLS"
+  head2 "Installing into $UPSTREAM_SKILLS at ${sha:0:12}"
+  for s in $ORC2_SKILLS_SET $ORC2_SKILLS_FRONTEND; do
+    if [[ -d "$UPSTREAM_SKILLS/$s" ]]; then say "  kept $s (already installed — not overwritten)"; continue; fi
+    if extract_skill "$tarball" "$sha" "$s" "$UPSTREAM_SKILLS"; then say "  installed $s"
+    else say "  ! $s not found upstream"; fi
+  done
+  say ""
+  say "Now run \`orc2 render\` — it drops the per-project copies of anything now installed globally."
+}
+
 # ------------------------------------------------------------------ doctor ---
 
 do_doctor() {
@@ -963,6 +1071,17 @@ do_doctor() {
     say "WARN  no ORC2_SKILLS_PIN recorded — the vendored skills are unversioned"
   fi
 
+  # The planning skills a human runs. Missing ones are a WARN, not a FAIL: the
+  # pipeline itself still works, but `plan-app` names them and its instructions
+  # dangle without them — and an uninstalled skill fails silently.
+  local fe_missing=""
+  for s in $ORC2_SKILLS_FRONTEND; do
+    [[ "$(skill_where "$s")" == missing ]] && fe_missing="$fe_missing $s"
+  done
+  [[ -z "$fe_missing" ]] && say "PASS  planning skills reachable (plan-app can be followed)" \
+    || { say "WARN  planning skills missing:$fe_missing"
+         say "      plan-app names these; run \`orc2 skills --global\` to install them"; }
+
   [[ -f "$TARGET/docs/agents/flow.md" ]] && say "PASS  flow doc present (the seam is documented)" \
     || say "WARN  docs/agents/flow.md missing — run \`orc2 render\`"
   if [[ -n "$ORC2_AGENTS_FILE" ]]; then
@@ -1015,6 +1134,10 @@ case "$CMD" in
     set -a; . "$TARGET/.orc2/config.env"; set +a
     do_render ;;
   doctor) do_doctor ;;
+  skills)
+    [[ -f "$TARGET/.orc2/config.env" ]] && { set -a; . "$TARGET/.orc2/config.env"; set +a; }
+    derive
+    do_skills "${SKILLS_ARG:-}" ;;
   help|-h|--help) awk 'NR>1 && /^#/{sub(/^# ?/,""); print; next} NR>1{exit}' "$0" ;;
   *) say "orc2: unknown command '$CMD' — try \`orc2 help\`" >&2; exit 2 ;;
 esac

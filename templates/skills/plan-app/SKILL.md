@@ -18,6 +18,25 @@ This skill is the checklist for that session. It is user-only on purpose: an age
 
 **Keep the grilling and the decomposition in one unbroken context window.** Do not compact until the areas are named and written down — that thinking is what makes the specs consistent with each other. Each `/to-spec` afterwards can start fresh.
 
+## Step 0 — Make sure the skills below exist
+
+Every `/name` this file tells you to run is a real skill that has to be installed. Check first, because the failure mode is silent: an uninstalled skill just does nothing, and it is easy to read that as "the step did not apply."
+
+```
+orc2 skills
+```
+
+That prints where each one lives — `global`, a path inside this project, or `missing`. If anything reads `missing`:
+
+```
+orc2 skills --global      # installs into ~/.claude/skills, for every project
+orc2 render               # then drops the per-project copies that are now redundant
+```
+
+`orc2 init` already vendored a project-local copy of any planning skill you did not have, so in most cases they are present before you read this. `--global` is the better home if you plan to use them on more than one project — it also stops each project carrying a copy that quietly goes stale.
+
+**Names differ between installs.** This file says `/to-spec` and `/to-tickets`; yours may be `/to-prd` and `/to-issues`. `orc2 skills` lists what you actually have — go by that, not by the names here.
+
 ## Step 1 — Grill the app-wide question
 
 Open `/grill-with-docs` (it writes glossary entries and ADRs as it goes, which is the point — this session's output is a paper trail, not just a plan). Give it one app-wide question: **what is this application, and what has to be true for it to ship?**

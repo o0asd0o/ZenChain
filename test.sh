@@ -476,6 +476,51 @@ grep -q 'model_reasoning_effort="medium"' <<<"$argv_cx" || bad="$bad codex"
 [[ -z "$bad" ]] && echo "PASS  effort reaches every backend (implementer at medium)" \
   || { echo "FAIL  effort never reaches:$bad"; fail=1; }
 
+# plan-app names /grill-with-docs, /to-spec, /to-tickets and friends. On a machine
+# with none of them installed, those instructions dangle — and an uninstalled
+# skill fails silently, which reads as "the step did not apply".
+empty="$WORK/no-global-skills"; mkdir -p "$empty"
+d="$WORK/frontend"; mkdir -p "$d"; git -C "$d" init -q .
+ORC2_UPSTREAM_SKILLS="$empty" "$ORC2_HOME/orc2" init "$d" --yes >/dev/null 2>&1
+sk="$d/.claude/skills"
+fe_bad=""
+for s in grill-with-docs grilling to-spec to-tickets triage wayfinder handoff; do
+  [[ -f "$sk/$s/SKILL.md" ]] || fe_bad="$fe_bad $s"
+done
+[[ -z "$fe_bad" ]] && echo "PASS  planning skills vendored when nothing is installed globally" \
+  || { echo "FAIL  planning skills missing on a bare machine:$fe_bad"; fail=1; }
+
+# grill-with-docs is a two-line skill whose body is "Run a /grilling session".
+# Vendoring it without grilling installs a pointer to nothing.
+[[ -d "$sk/grilling" ]] \
+  && echo "PASS  grill-with-docs's /grilling dependency is vendored too" \
+  || { echo "FAIL  grilling missing — grill-with-docs points at nothing"; fail=1; }
+
+# These are user-only BY DESIGN: they interview a human. Stripping that flag would
+# let an agent invent the requirements it is supposed to be building against.
+uo_bad=""
+for s in grill-with-docs to-spec to-tickets triage wayfinder; do
+  [[ -f "$sk/$s/SKILL.md" ]] || continue
+  grep -q '^disable-model-invocation: true' "$sk/$s/SKILL.md" || uo_bad="$uo_bad $s"
+done
+[[ -z "$uo_bad" ]] && echo "PASS  planning skills stay user-only" \
+  || { echo "FAIL  planning skills made agent-invocable:$uo_bad"; fail=1; }
+
+# A skill already installed globally must not also be vendored locally, or the
+# copy shadows the user's own and goes stale against it.
+d2="$WORK/dedup"; mkdir -p "$d2"; git -C "$d2" init -q .
+fakeglobal="$WORK/fakeglobal"; mkdir -p "$fakeglobal/triage"
+printf -- '---\nname: triage\n---\nmine\n' >"$fakeglobal/triage/SKILL.md"
+ORC2_UPSTREAM_SKILLS="$fakeglobal" "$ORC2_HOME/orc2" init "$d2" --yes >/dev/null 2>&1
+[[ -d "$d2/.claude/skills/triage" ]] \
+  && { echo "FAIL  a globally-installed skill was vendored locally anyway"; fail=1; } \
+  || echo "PASS  globally-installed skills are not duplicated locally"
+
+# plan-app must tell the reader how to get what it names.
+grep -q 'orc2 skills' "$d/.claude/skills/plan-app/SKILL.md" \
+  && echo "PASS  plan-app routes the reader to orc2 skills" \
+  || { echo "FAIL  plan-app names skills without saying how to install them"; fail=1; }
+
 # doctor must actually run its checks. It once reported all nine skills as one
 # unreachable name because an IFS set for the gate loop leaked into the skills
 # loop — a green-looking pass that checked nothing.

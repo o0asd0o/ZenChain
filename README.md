@@ -90,7 +90,19 @@ Non-interactive: `orc2 init --answers my-answers.env`, or `orc2 init --yes` for 
 
 ## Prerequisites
 
-The `implementer` cites the `implement` and `tdd` skills, and `run-prd` cites `to-issues`. Those are separate skills, not part of this kit. `orc2 doctor` warns if they are unreachable. `orc2 init --vendor-skills` copies them from `~/.claude/skills` into the target, which is what you want when the runner has no global skill mechanism.
+**None.** `orc2 init` fetches every skill it names, at a pinned commit, so a fresh machine with nothing installed is fully working — including the planning half (`/grill-with-docs`, `/to-spec`, `/to-tickets`, `/triage`, `/wayfinder`) that `plan-app` tells you to run.
+
+```
+orc2 skills            # where each skill lives: a project path, global, or missing
+orc2 skills --global   # install them into ~/.claude/skills, for every project
+```
+
+Two rules keep the copies honest:
+
+- **A skill already in `~/.claude/skills` is never vendored locally.** A local copy would shadow yours and then go stale against it. Install globally and re-render, and orc2 *removes* the per-project copies it no longer needs.
+- **The planning skills stay user-only.** They exist to interview a person, so an agent must not invoke them — that is how a pipeline ends up inventing the requirements it is meant to build against. Only the skills a role actually drives get their `disable-model-invocation` flag stripped, and `orc2 doctor` fails if a cited one is still user-only.
+
+`orc2 init --vendor-skills` copies from `~/.claude/skills` instead of fetching, for an offline setup.
 
 ## Design notes worth knowing before you change anything
 
