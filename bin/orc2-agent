@@ -37,6 +37,12 @@ PROMPT="$*"
 # after the second --- is the system prompt.
 MODEL="$(sed -n '/^---$/,/^---$/p' "$AGENT_FILE" | sed -n 's/^model:[[:space:]]*//p' | head -1)"
 TOOLS="$(sed -n '/^---$/,/^---$/p' "$AGENT_FILE" | sed -n 's/^tools:[[:space:]]*//p' | head -1 | tr -d ' ')"
+# Reasoning effort is pinned per role — implementer and fixer at medium because
+# the issue already specifies the work, the judgement roles at high. The bridge
+# used to read model and tools but not this, so every role dispatched through it
+# silently ran at the backend's default. Each CLI spells it differently.
+EFFORT="$(sed -n '/^---$/,/^---$/p' "$AGENT_FILE" | sed -n 's/^effort:[[:space:]]*//p' | head -1 | tr -d ' ')"
+EFFORT="${ORC2_AGENT_EFFORT:-$EFFORT}"
 # Only the FIRST TWO `---` lines close the frontmatter. Counting every one of
 # them drops a horizontal rule inside the role body out of the system prompt.
 BODY="$(awk 'BEGIN{n=0} n<2 && /^---$/{n++; next} n>=2{print}' "$AGENT_FILE")"
@@ -68,12 +74,16 @@ case "$BACKEND" in
     ARGS=(-p --no-session --append-system-prompt "$SYS_FILE")
     [[ -n "$MODEL" ]] && ARGS+=(--model "$MODEL")
     [[ -n "$TOOLS" ]] && ARGS+=(--tools "$TOOLS")
+    # pi calls it thinking. A model pattern may also carry a `:<level>` suffix;
+    # that wins, so do not add the flag as well and have them disagree.
+    [[ -n "$EFFORT" && "$MODEL" != *:* ]] && ARGS+=(--thinking "$EFFORT")
     pi "${ARGS[@]}" "$PROMPT" >"$OUT_FILE" 2>&1
     ;;
   claude)
     ARGS=(-p --append-system-prompt "$(cat "$SYS_FILE")")
     [[ -n "$MODEL" ]] && ARGS+=(--model "$MODEL")
     [[ -n "$TOOLS" ]] && ARGS+=(--allowedTools "$TOOLS")
+    [[ -n "$EFFORT" ]] && ARGS+=(--effort "$EFFORT")
     claude "${ARGS[@]}" "$PROMPT" >"$OUT_FILE" 2>&1
     ;;
   codex)
@@ -82,6 +92,8 @@ case "$BACKEND" in
     # instructions as part of the task.
     ARGS=(exec --cd "$CWD" "${ORC2_CODEX_APPROVAL:---full-auto}")
     [[ -n "$MODEL" ]] && ARGS+=(-m "$MODEL")
+    # Codex takes it as a config override rather than a flag.
+    [[ -n "$EFFORT" ]] && ARGS+=(-c "model_reasoning_effort=\"$EFFORT\"")
     codex "${ARGS[@]}" "$(printf '%s\n\n===== TASK =====\n\n%s\n' "$BODY" "$PROMPT")" >"$OUT_FILE" 2>&1
     ;;
   *) echo "orc2-agent: unknown backend '$BACKEND'" >&2; exit 2 ;;

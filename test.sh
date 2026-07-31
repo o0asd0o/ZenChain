@@ -453,6 +453,29 @@ else
   echo "PASS  a directory destination fails loudly"
 fi
 
+# Effort is pinned per role and must actually reach the backend. The bridge read
+# model and tools but not effort, so every role dispatched through it ran at the
+# backend's default — silently, since nothing in the output says what it used.
+d="$WORK/effort"; mkdir -p "$d"; git -C "$d" init -q .
+printf 'ORC2_RUNNER="claude"\nORC2_RUNNER_MECH="pi"\nORC2_MODEL_BUILD="stub/model"\n' >"$d/e.env"
+"$ORC2_HOME/orc2" init "$d" --answers "$d/e.env" >/dev/null 2>&1
+for role in implementer fixer; do
+  rf="$d/.orc2/agents/$role.md"; [[ -f "$rf" ]] || rf="$d/.claude/agents/$role.md"
+  grep -q '^effort: medium$' "$rf" \
+    || { echo "FAIL  $role is not pinned to medium effort"; fail=1; }
+done
+stub="$WORK/stubbin"; mkdir -p "$stub"
+for b in pi claude codex; do printf '#!/usr/bin/env bash\necho "ARGV: $*"\n' >"$stub/$b"; chmod +x "$stub/$b"; done
+argv_pi="$(cd "$d" && PATH="$stub:$PATH" .orc2/bin/orc2-agent implementer "x" 2>&1 || true)"
+argv_cl="$(cd "$d" && PATH="$stub:$PATH" .orc2/bin/orc2-agent implementer --backend claude "x" 2>&1 || true)"
+argv_cx="$(cd "$d" && PATH="$stub:$PATH" .orc2/bin/orc2-agent implementer --backend codex  "x" 2>&1 || true)"
+bad=""
+grep -q -- '--thinking medium' <<<"$argv_pi" || bad="$bad pi"
+grep -q -- '--effort medium'   <<<"$argv_cl" || bad="$bad claude"
+grep -q 'model_reasoning_effort="medium"' <<<"$argv_cx" || bad="$bad codex"
+[[ -z "$bad" ]] && echo "PASS  effort reaches every backend (implementer at medium)" \
+  || { echo "FAIL  effort never reaches:$bad"; fail=1; }
+
 # doctor must actually run its checks. It once reported all nine skills as one
 # unreachable name because an IFS set for the gate loop leaked into the skills
 # loop — a green-looking pass that checked nothing.
