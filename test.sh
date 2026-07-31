@@ -407,13 +407,50 @@ fi
 # The write must stay atomic: a rename, never a truncate-then-write. Strip comments
 # first — write_preserving explains the rejected `cat >` form in its own comment,
 # and matching that made this guard fail on correct code.
-if grep -v '^\s*#' "$ORC2_HOME/orc2" | grep -q 'cat "\$src" *>"\$dest"'; then
-  echo "FAIL  write_preserving truncates the destination (lost atomicity)"; fail=1
-elif grep -v '^\s*#' "$ORC2_HOME/orc2" | grep -q 'mv "\$src" "\$real"' \
-  || grep -v '^\s*#' "$ORC2_HOME/orc2" | grep -q 'if ! mv "\$src"'; then
+# Assert the atomic form is present, rather than trying to prove the truncating
+# form is absent: `cat "$src" >"$dest"` is quoted in write_preserving's own
+# comment explaining why it was rejected, so matching on it flags correct code.
+if grep -q 'if ! mv "\$src" "\$real"' "$ORC2_HOME/orc2"; then
   echo "PASS  writes are atomic renames"
 else
   echo "FAIL  write_preserving no longer uses an atomic rename"; fail=1
+fi
+
+# --- round 3: regressions the round-2 fixes introduced -----------------------
+
+# Every freshly rendered file must be readable, not mktemp's 0600. The mode was
+# only captured when the destination already existed, so a first render shipped
+# the entire kit as -rw-------.
+d="$WORK/modes"; mkdir -p "$d"; git -C "$d" init -q .
+"$ORC2_HOME/orc2" init "$d" --yes >/dev/null 2>&1
+want="$(printf '%o' "$(( 0666 & ~0$(umask) ))")"
+badmode=""
+for f in .orc2/ORCHESTRATOR.md .claude/agents/reviewer.md docs/agents/flow.md AGENTS.md; do
+  [[ -e "$d/$f" ]] || continue
+  m="$(stat -f '%Lp' "$d/$f" 2>/dev/null || stat -c '%a' "$d/$f")"
+  [[ "$m" == "$want" ]] || badmode="$badmode $f:$m"
+done
+[[ -z "$badmode" ]] && echo "PASS  fresh files render with the umask mode ($want)" \
+  || { echo "FAIL  fresh files have the wrong mode (want $want):$badmode"; fail=1; }
+
+# Both markers on ONE line balances the counts and passes a `>` order check,
+# while the splice still deletes to EOF.
+d="$WORK/sameline"; mkdir -p "$d"; git -C "$d" init -q .
+printf '# app\n\nInline orc2:agent-skills:start and orc2:agent-skills:end mention.\n\nTAIL NOTES\n' >"$d/AGENTS.md"
+"$ORC2_HOME/orc2" init "$d" --yes >/dev/null 2>&1 || true
+grep -q 'TAIL NOTES' "$d/AGENTS.md" \
+  && echo "PASS  same-line markers do not delete the tail" \
+  || { echo "FAIL  DATA LOSS — markers on one line still delete to EOF"; fail=1; }
+
+# mv into a directory succeeds by moving the file inside it: wrong place, and it
+# used to report success.
+d="$WORK/dirdest"; mkdir -p "$d"; git -C "$d" init -q .
+"$ORC2_HOME/orc2" init "$d" --yes >/dev/null 2>&1
+rm -f "$d/AGENTS.md"; mkdir "$d/AGENTS.md"
+if "$ORC2_HOME/orc2" render "$d" >/dev/null 2>&1; then
+  echo "FAIL  render reported success with a directory as the destination"; fail=1
+else
+  echo "PASS  a directory destination fails loudly"
 fi
 
 # doctor must actually run its checks. It once reported all nine skills as one

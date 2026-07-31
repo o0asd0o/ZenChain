@@ -510,13 +510,29 @@ write_out() { # write_out <template> <dest>
 #     file, silently detaching it from whatever manages it.
 # So: resolve the link, remember the mode, rename, restore the mode.
 write_preserving() { # write_preserving <dest> <src-tmp>
-  local dest="$1" src="$2" real mode=""
+  local dest="$1" src="$2" real mode="" hops=0
   real="$dest"
+  # Depth-capped: a symlink cycle (a→b→a) would spin here forever with no
+  # diagnostic, where a plain write would have failed instantly with ELOOP.
   while [[ -L "$real" ]]; do
+    if (( ++hops > 32 )); then
+      rm -f "$src"; say "orc2: $dest is a symlink loop — left unchanged" >&2; return 1
+    fi
     local d t; d="$(cd -P "$(dirname "$real")" && pwd)"; t="$(readlink "$real")"
     [[ "$t" != /* ]] && t="$d/$t"; real="$t"
   done
-  [[ -e "$real" ]] && mode="$(stat -f '%Lp' "$real" 2>/dev/null || stat -c '%a' "$real" 2>/dev/null || true)"
+  # mv into a directory succeeds by moving the file *inside* it, so the render
+  # would land in the wrong place and still report success.
+  if [[ -d "$real" ]]; then
+    rm -f "$src"; say "orc2: $real is a directory, not a file — left unchanged" >&2; return 1
+  fi
+  if [[ -e "$real" ]]; then
+    mode="$(stat -f '%Lp' "$real" 2>/dev/null || stat -c '%a' "$real" 2>/dev/null || true)"
+  else
+    # A NEW file would otherwise inherit mktemp's 0600 and ship unreadable to
+    # anyone but the owner. Derive the mode the shell would have used itself.
+    mode="$(printf '%o' "$(( 0666 & ~0$(umask) ))")"
+  fi
   if ! mv "$src" "$real"; then
     rm -f "$src"
     say "orc2: cannot write $real — left unchanged" >&2
@@ -670,9 +686,11 @@ markers_sane() { # markers_sane <repo-relative-file>
     local sl el
     sl="$(grep -n 'orc2:agent-skills:start' "$TARGET/$f" | head -1 | cut -d: -f1)"
     el="$(grep -n 'orc2:agent-skills:end'   "$TARGET/$f" | head -1 | cut -d: -f1)"
-    if (( sl > el )); then
-      say "orc2: $f has its end marker (line $el) above its start marker (line $sl)." >&2
-      say "orc2: refusing to touch it — splicing that order would delete everything after line $sl." >&2
+    # `>=`, not `>`: both markers on ONE line balances the counts and passes an
+    # order check, but the splice sets skip=1 on that line and never clears it.
+    if (( sl >= el )); then
+      say "orc2: $f has its markers out of order or on the same line (start: $sl, end: $el)." >&2
+      say "orc2: refusing to touch it — splicing that would delete everything after line $sl." >&2
       return 1
     fi
   fi
