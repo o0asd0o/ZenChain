@@ -3,7 +3,9 @@
 Installs an unattended implement→review→fix→QA pipeline into any git repository. Extracted from a project that ran it for nine PRDs; every rule in the templates is there because breaking it cost a real round.
 
 ```bash
-ln -sf ~/zen/zen ~/.local/bin/zen      # once — symlink, do not copy
+git clone https://github.com/o0asd0o/ZenChain.git ~/.local/share/zenchain
+mkdir -p ~/.local/bin
+ln -sfn ~/.local/share/zenchain/zen ~/.local/bin/zen
 cd ~/code/my-project                   # then, from inside any project folder:
 zen init                               # interview, then render
 zen doctor                             # check the install and its backends
