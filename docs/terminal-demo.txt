@@ -1,0 +1,43 @@
+ZenChain terminal preview
+Demo repo: <temporary-git-repo>
+
+$ ./zen help
+ZenChain — install the six-agent implementation pipeline into a project.
+  zen init [target-dir]       interactive setup, then render
+  zen render [target-dir]     re-render from .zenchain/config.env
+  zen doctor [target-dir]     check the install and its backends
+
+$ ./zen init --yes --vendor-skills <temporary-git-repo>
+ZenChain — pipeline setup for <temporary-repo>
+  wrote .zenchain/config.env
+Rendering into <temporary-repo>
+  wrote .zenchain/ORCHESTRATOR.md
+  wrote .zenchain/bin/zenchain-ticket-check
+  wrote .zenchain/bin/zenchain-anti-slop-check
+  wrote .claude/agents/{reviewer,qa,decider,implementer,fixer,explorer}.md
+  wrote .claude/skills/{plan-app,run-issue,run-prd}/SKILL.md
+  wrote docs/agents/*.md and docs/INBOX.md
+  added an Agent skills block to AGENTS.md
+  created CLAUDE.md importing AGENTS.md
+Done
+
+$ ./zen doctor <temporary-git-repo>
+ZenChain doctor — <temporary-repo>
+PASS  orchestrator present
+PASS  role implementer (.claude/agents)
+PASS  role reviewer (.claude/agents)
+PASS  ticket readiness checker present
+PASS  anti-slop enforcement ready — PASS anti-slop not applicable (no package.json)
+PASS  Agent skills block routes both local modifiers
+PASS  git repository (worktrees available)
+
+P  install usable
+
+Next step
+This repo has no PRDs and no tickets, so there is nothing for the pipeline to run yet.
+The pipeline builds tickets; it cannot invent them.
+  1. /plan-app
+  2. /grill-with-docs
+  3. /to-spec
+  4. /to-tickets
+  5. /run-prd <area>

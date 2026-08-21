@@ -118,6 +118,17 @@ Two rules keep the copies honest:
 
 `zen init --vendor-skills` copies from `~/.claude/skills` instead of fetching, for an offline setup.
 
+## See it in a terminal
+
+Run the isolated preview to see `help`, `init`, and `doctor` provision a fresh
+repository and report its next step:
+
+```bash
+./demo/terminal-preview.sh
+```
+
+The captured output and visual terminal capture live in [`docs/terminal-demo.md`](docs/terminal-demo.md).
+
 ## Design notes worth knowing before you change anything
 
 **The gate is run by the orchestrator, never by an agent.** Agent reports are claims. This is the single rule the whole thing rests on.

@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1050" viewBox="0 0 1600 1050">
+  <rect width="1600" height="1050" fill="#111827"/>
+  <rect x="24" y="24" width="1552" height="1002" rx="16" fill="#0b1220" stroke="#334155" stroke-width="2"/>
+  <circle cx="58" cy="58" r="9" fill="#fb7185"/>
+  <circle cx="88" cy="58" r="9" fill="#fbbf24"/>
+  <circle cx="118" cy="58" r="9" fill="#34d399"/>
+  <text x="800" y="66" text-anchor="middle" fill="#94a3b8" font-family="SFMono-Regular,Menlo,monospace" font-size="20">ZenChain terminal preview</text>
+  <g font-family="SFMono-Regular,Menlo,monospace" font-size="22">
+    <text x="58" y="116" fill="#86efac">$ ./zen help</text>
+    <text x="58" y="150" fill="#e5e7eb">ZenChain — install the six-agent implementation pipeline into a project.</text>
+    <text x="58" y="184" fill="#cbd5e1">  zen init [target-dir]       interactive setup, then render</text>
+    <text x="58" y="218" fill="#cbd5e1">  zen render [target-dir]     re-render from .zenchain/config.env</text>
+    <text x="58" y="252" fill="#cbd5e1">  zen doctor [target-dir]     check the install and its backends</text>
+
+    <text x="58" y="308" fill="#86efac">$ ./zen init --yes --vendor-skills &lt;temporary-git-repo&gt;</text>
+    <text x="58" y="342" fill="#f8fafc">ZenChain — pipeline setup for &lt;temporary-repo&gt;</text>
+    <text x="58" y="376" fill="#cbd5e1">  wrote .zenchain/config.env</text>
+    <text x="58" y="410" fill="#cbd5e1">Rendering into &lt;temporary-repo&gt;</text>
+    <text x="58" y="444" fill="#cbd5e1">  wrote .zenchain/ORCHESTRATOR.md</text>
+    <text x="58" y="478" fill="#cbd5e1">  wrote .zenchain/bin/zenchain-ticket-check</text>
+    <text x="58" y="512" fill="#cbd5e1">  wrote .zenchain/bin/zenchain-anti-slop-check</text>
+    <text x="58" y="546" fill="#cbd5e1">  wrote .claude/agents/{reviewer,qa,decider,implementer,fixer,explorer}.md</text>
+    <text x="58" y="580" fill="#cbd5e1">  created CLAUDE.md importing AGENTS.md</text>
+    <text x="58" y="614" fill="#34d399">Done</text>
+
+    <text x="58" y="670" fill="#86efac">$ ./zen doctor &lt;temporary-git-repo&gt;</text>
+    <text x="58" y="704" fill="#f8fafc">ZenChain doctor — &lt;temporary-repo&gt;</text>
+    <text x="58" y="738" fill="#34d399">PASS  orchestrator present</text>
+    <text x="58" y="772" fill="#34d399">PASS  role implementer (.claude/agents)</text>
+    <text x="58" y="806" fill="#34d399">PASS  ticket readiness checker present</text>
+    <text x="58" y="840" fill="#34d399">PASS  Agent skills block routes both local modifiers</text>
+    <text x="58" y="874" fill="#34d399">PASS  git repository (worktrees available)</text>
+    <text x="58" y="916" fill="#fbbf24">P  install usable</text>
+    <text x="58" y="966" fill="#86efac">Next step: /plan-app → /grill-with-docs → /to-spec → /to-tickets → /run-prd &lt;area&gt;</text>
+  </g>
+</svg>
