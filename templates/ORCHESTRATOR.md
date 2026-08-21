@@ -142,7 +142,7 @@ You are the sole writer of `docs/INBOX.md`. Serialize appends so two lanes canno
 
 When the human answers, update the controlling acceptance criterion, scenario, PRD direction, or explicitly approved ADR. Remove the resolved INBOX entry; git retains history. Return the issue to `ready-for-agent`. The queue entry and chat answer are never implementation contracts by themselves.
 
-Route every material ambiguity here: user-visible behavior, money, stock, state transitions, access/security, schema meaning, a new/replacement/major-upgraded dependency or provider absent from `## Approved Technical Changes`, a binding contradiction, destructive/outward action, or a go/no-go needing unavailable access. A local reversible choice that changes no acceptance criterion or public behavior stays with the implementer, which chooses the simplest existing pattern and reports it in one line.
+Route every material ambiguity here: user-visible behavior, money, stock, state transitions, access/security, schema meaning, a new/replacement/major-upgraded dependency or provider absent from `## Approved Technical Changes`, a binding contradiction, destructive/outward action, or a go/no-go needing unavailable access. A local reversible choice that changes no acceptance criterion or public behavior stays with the implementer, which chooses the strongest coherent approach inside established constraints and reports only the result.
 
 ## Report each cycle
 

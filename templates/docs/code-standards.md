@@ -8,7 +8,7 @@ Five core rules apply everywhere. The reviewer's Standards axis reads this file,
 
 Fix the root cause of what was asked, then stop.
 
-- DO change the smallest set of files that actually fixes the named problem.
+- DO use the smallest coherent change surface that fixes the named problem cleanly. File count is not a quality metric; splitting a component or centralising a shared seam may require more files and still be the smaller design.
 - DO fix it at the shared point every caller routes through, not in the one path the issue happened to name. One guard in the shared function is a smaller diff than a guard in every caller — and patching only the named path leaves every sibling caller broken.
 - DON'T refactor, rename, reformat, upgrade, or tidy anything the issue did not name.
 - Noticed something else worth doing? **Report it. Do not fold it in.** Unrequested work is a review finding even when the work is good.

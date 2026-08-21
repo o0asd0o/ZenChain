@@ -76,6 +76,7 @@ Also on this axis, and not optional:
 - **Test quality** — do the tests prove behaviour through a public interface, or are they coupled to implementation? A test that would break on a rename but not on a behaviour change is a finding. So is a test that asserts nothing meaningful, and so is a weakened assertion.
 - **Correctness** — genuine defects. Concurrency, money arithmetic, rounding, partial failure, access control.
 - **Module shape** — where the diff designs a module, judge it in the `/codebase-design` vocabulary: is behaviour deep behind a small interface, at a clean seam? "This is shallow" is a claim you must support with the interface and the behaviour behind it, not a mood.
+- **Solution quality** — a technically passing literal patch is still a finding when it leaves avoidable branching, duplication, coupling, scattered special cases, or visibly unfinished UI inside the issue's scope. Cite the concrete maintenance or user consequence; “I would design it differently” is not evidence.
 
 Distinguish **hard violations** (a documented standard breached, a real defect) from **judgement calls** (every baseline smell). Say which each finding is.
 
@@ -92,7 +93,7 @@ Then two sections, in this order, each a numbered list:
 ## Standards
 ```
 
-Each finding carries SEVERITY (blocking | should-fix | minor), FINDING quoting the offending code or text, and FIX stating the specific change wanted. Order by severity within each section.
+Each finding carries SEVERITY (blocking | should-fix | minor), FINDING quoting the offending code or text, and FIX. FIX states the required outcome and the constraint it must satisfy. Do not prescribe exact code when more than one compliant repair exists; name an exact mechanism only when the issue, a cited contract, or a single safe correction requires it. Order by severity within each section.
 
 End with one line: findings per axis, and the worst issue *within each axis*. Do not pick a single worst across axes.
 
