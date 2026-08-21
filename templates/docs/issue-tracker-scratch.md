@@ -17,9 +17,19 @@ Two sections the pipeline reads directly, so they are not optional:
 - **`## Depends on`** — the issues that must close first. The orchestrator builds its selectable set from these.
 - **`## Relevant files`** — the files this slice expects to touch. Two issues that share an entry here must not run in parallel; that is a merge conflict scheduled on purpose.
 
-## Visual reference on screen-fidelity issues
+## Ticket readiness command
 
-When an issue renders something with a designed appearance, give it a `## Visual reference` section so the implementer has the contract up front rather than guessing.
+Before any implementation role starts:
+
+```bash
+.orc2/bin/orc2-ticket-check "$ISSUE_PATH"
+```
+
+For UI fidelity work, insert `--ui` after `orc2-ticket-check`. A non-zero exit means `needs-info`; do not spawn the implementer.
+
+## Visual Reference on screen-fidelity issues
+
+When an issue renders something with a designed appearance, give it a `## Visual Reference` section so the implementer has the contract up front rather than guessing.
 
 A reference is one or more **tagged entries**. Tag every entry with its source, scope, and viewport:
 
@@ -28,7 +38,7 @@ A reference is one or more **tagged entries**. Tag every entry with its source, 
 - **viewport** — a pixel width, or `web` / `mobile`
 
 ```
-## Visual reference
+## Visual Reference
 
 - Figma · whole-screen · 1440: [node 1:2639](https://www.figma.com/design/.../?node-id=1-2639&m=dev)
 - Figma · whole-screen · 375: [node 1:14477](https://www.figma.com/design/.../?node-id=1-14477&m=dev)

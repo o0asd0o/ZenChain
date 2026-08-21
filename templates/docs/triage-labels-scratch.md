@@ -21,4 +21,4 @@ When a skill mentions a role, write the corresponding value into the issue file'
 
 Writing `ready-for-human` on a successful close collides with its real meaning and leaves every issue reading the same whether it was complete or blocked. **Set `done` on close. Reserve `ready-for-human` for work an agent must not attempt.**
 
-A `done` issue may still carry open questions for a person — an unverified figure, a flagged design conflict. Those live under `## Comments` and surface at the PRD checkpoint. They do not change the `Status:` line, because the _work_ is finished; what remains is a decision, not an implementation.
+A blocking implementation question means `needs-info`, not `done`. It lives in `docs/INBOX.md` until the human answer updates the issue packet. A completed issue may still have a non-blocking human-eyes observation, but no unresolved contract choice.

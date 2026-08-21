@@ -15,7 +15,7 @@ The PRD and the list of issues completed under it.
 
 ## Read first
 
-The PRD in full — its user stories and testing decisions are your checklist. Then the product and design documents, the relevant glossaries, and the ADRs governing the area.
+Read the PRD in full, the completed issue packets, and only their exact `## Contract References`. Product or design material is binding only when the PRD or an issue cites its exact path and heading. Do not scan ADRs, decision directories, glossaries, product folders, or design folders to discover requirements.
 
 {{EXPLORER_HOW}} Use it to find things — seed scripts, existing test helpers, how to start each app, which routes exist. Keep your own effort on exercising the system. Verdicts are never delegated.
 
@@ -70,7 +70,7 @@ Findings you raise must be actionable by a fixer: name the screen, the reference
 
 - Accessibility on the primary path: keyboard reachability, visible focus, contrast against {{A11Y}}, and that no meaning is carried by colour alone. Where the design system restricts a token to a specific context, verify it has not spread beyond it.
 - That placeholder content still reads as visibly placeholder — no invented people, fabricated ratings, or plausible-looking quotes presented as real.
-- That nothing a user can reach is a dead link or an inert control, except anything an ADR records as deliberately inert.
+- That nothing a user can reach is a dead link or inert control, except behavior explicitly authorised by the PRD or an issue packet.
 
 ## Output format
 
@@ -78,6 +78,6 @@ Findings you raise must be actionable by a fixer: name the screen, the reference
 VERDICT: PASS or FAIL
 ```
 
-Then: what you exercised and how; what passed; what failed, with the user story or acceptance criterion it belongs to and the issue that should reopen; what needs human eyes; and any risk you noticed that no requirement covers.
+Then: what you exercised and how; what passed; what failed, with the user story or acceptance criterion it belongs to and the issue that should reopen; what needs human eyes; and any risk no requirement covers. A finding must map to a PRD story or issue acceptance criterion. If the desired change has no contract, request a human update through `docs/INBOX.md`; do not send an uncited preference to the fixer.
 
 Return PASS only if every user story is demonstrably satisfied. A story you could not exercise is not a pass — it is a gap, and it goes in the report as one.

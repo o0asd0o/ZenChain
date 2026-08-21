@@ -13,7 +13,8 @@ fail=0
 
 bash -n "$ORC2_HOME/orc2"          || { echo "FAIL  orc2 has a syntax error"; exit 1; }
 bash -n "$ORC2_HOME/bin/orc2-agent" || { echo "FAIL  orc2-agent has a syntax error"; exit 1; }
-echo "PASS  both scripts parse"
+bash -n "$ORC2_HOME/bin/orc2-ticket-check" || { echo "FAIL  orc2-ticket-check has a syntax error"; exit 1; }
+echo "PASS  all scripts parse"
 
 # Every combination that changes which fragments get pulled in.
 combos=(
@@ -53,19 +54,20 @@ for combo in "${combos[@]}"; do
     [[ -f "$dir/.claude/agents/$role.md" || -f "$dir/.orc2/agents/$role.md" ]] \
       || { echo "FAIL  $name — role $role not rendered"; fail=1; }
   done
+  [[ -x "$dir/.orc2/bin/orc2-ticket-check" ]] \
+    || { echo "FAIL  $name — ticket readiness checker not rendered executable"; fail=1; }
 
   # An orchestrator that lost its gate block is useless and easy to break.
   grep -q 'You run the gate, not the agents' "$dir"/{.orc2,docs/pipeline}/ORCHESTRATOR.md 2>/dev/null \
     || { echo "FAIL  $name — orchestrator missing the gate rule"; fail=1; }
 
-  # A project with a database must carry a seeded engine record, logged once,
-  # naming the engine that was actually chosen.
+  # Database selection is already factual configuration. Rendering it again as
+  # a numbered decision creates a second authority and makes every builder scan
+  # a history directory before doing the issue in front of it.
   db="$(sed -n 's/^ORC2_DB="\{0,1\}\([a-z]*\)"\{0,1\}$/\1/p' "$dir/.orc2/config.env" | head -1)"
   if [[ -n "$db" && "$db" != none ]]; then
-    rec="$(ls "$dir"/{.scratch/decisions,docs/decisions}/*-database-engine.md 2>/dev/null | head -1 || true)"
-    if [[ -z "$rec" ]]; then
-      echo "FAIL  $name — no seeded engine decision record"; fail=1; continue
-    fi
+    find "$dir" -path '*/decisions/*-database-engine.md' -print -quit | grep -q . \
+      && { echo "FAIL  $name — database choice was duplicated as a decision record"; fail=1; }
     # The dev-database guard must render at ANY lane count. It used to live only
     # inside the two-lane fragment, so a serial project with a database got no
     # guard at all.
@@ -89,12 +91,16 @@ for combo in "${combos[@]}"; do
       done
     fi
 
-    want="$([[ "$db" == sqlite ]] && echo SQLite || echo PostgreSQL)"
-    grep -q "$want" "$rec" || { echo "FAIL  $name — engine record does not name $want"; fail=1; }
-    log="$(dirname "$rec")/LOG.md"
-    n="$(grep -c 'database-engine' "$log" || true)"
-    [[ "$n" == 1 ]] || { echo "FAIL  $name — engine record logged $n times, expected 1"; fail=1; }
   fi
+
+  # One tracker-neutral queue is the only pipeline decision artifact. It is
+  # transient and render must never overwrite a human's pending entries.
+  inbox="$dir/docs/INBOX.md"
+  [[ -f "$inbox" ]] || { echo "FAIL  $name — docs/INBOX.md not rendered"; fail=1; }
+  grep -q 'unanswered questions only' "$inbox" 2>/dev/null \
+    || { echo "FAIL  $name — INBOX does not state its transient contract"; fail=1; }
+  find "$dir" -path '*/decisions/LOG.md' -print -quit | grep -q . \
+    && { echo "FAIL  $name — decision LOG.md still generated"; fail=1; }
 
   # Every skill a role prompt cites must be vendored AND agent-invocable. A
   # skill carrying disable-model-invocation cannot be reached by an agent, so
@@ -201,11 +207,42 @@ for combo in "${combos[@]}"; do
       && { echo "FAIL  $name — $role reads code-standards.md but never writes code"; fail=1; }
   done
 
-  # The dependency rule must reach all three roles that enforce it.
-  grep -q 'no decision record' "$dir"/{.claude,.orc2}/agents/reviewer.md 2>/dev/null \
-    || { echo "FAIL  $name — reviewer missing the undocumented-dependency finding"; fail=1; }
+  # The ticket packet is the only implementation contract. Builder and judge
+  # must not discover hidden requirements by browsing PRDs, ADRs or records.
+  for role in implementer fixer reviewer; do
+    rf="$dir/.claude/agents/$role.md"; [[ -f "$rf" ]] || rf="$dir/.orc2/agents/$role.md"
+    grep -q 'Contract References' "$rf" \
+      || { echo "FAIL  $name — $role missing explicit contract-reference boundary"; fail=1; }
+    grep -qi 'do not scan.*ADR\|never scan.*ADR' "$rf" \
+      || { echo "FAIL  $name — $role may still scan ADRs"; fail=1; }
+  done
+
+  # Technical changes are authorised by the issue, not a numbered record.
+  grep -q 'Approved Technical Changes' "$dir"/{.claude,.orc2}/agents/reviewer.md 2>/dev/null \
+    || { echo "FAIL  $name — reviewer missing issue-authorised technical changes"; fail=1; }
   grep -q 'You do not choose dependencies' "$dir"/{.claude,.orc2}/agents/implementer.md 2>/dev/null \
     || { echo "FAIL  $name — implementer missing the dependency ladder"; fail=1; }
+
+  # The compatible role id remains decider, but the role is a read-only advisor.
+  dc="$dir/.claude/agents/decider.md"; [[ -f "$dc" ]] || dc="$dir/.orc2/agents/decider.md"
+  grep -q 'You prepare questions; you do not decide' "$dc" \
+    || { echo "FAIL  $name — decider is still authoritative"; fail=1; }
+  grep -q '^tools:.*Write\|^tools:.*Edit' "$dc" \
+    && { echo "FAIL  $name — decision advisor still has write tools"; fail=1; }
+  grep -qi 'score and rank\|weighted table\|writes a record' "$dc" \
+    && { echo "FAIL  $name — decision advisor still produces scored/file records"; fail=1; }
+  grep -q 'Do not invoke `/research`' "$dc" \
+    || { echo "FAIL  $name — decision advisor may still create research files"; fail=1; }
+
+  # Local policy files modify behavior without shadowing or editing upstream skills.
+  for policy in grill-with-docs-policy ticket-writing-policy; do
+    pf="$dir/docs/agents/$policy.md"
+    [[ -f "$pf" ]] || { echo "FAIL  $name — $policy not rendered"; fail=1; }
+    grep -q "$policy.md" "$dir/AGENTS.md" \
+      || { echo "FAIL  $name — AGENTS.md does not route $policy"; fail=1; }
+  done
+  grep -q '/to-tickets.*\/to-issues\|/to-issues.*\/to-tickets' "$dir/docs/agents/ticket-writing-policy.md" 2>/dev/null \
+    || { echo "FAIL  $name — ticket policy does not cover both skill names"; fail=1; }
 
   # Re-rendering from the saved config must reproduce the same tree.
   cp -R "$dir" "$dir.first"
@@ -216,6 +253,65 @@ for combo in "${combos[@]}"; do
 
   echo "PASS  $name"
 done
+
+# Readiness is a real gate, not prompt advice. The same checker accepts a local
+# markdown file or a tracker body on stdin.
+valid="$WORK/ticket-valid.md"
+printf '%s\n' \
+  '# Refund expired payment' \
+  '## Acceptance Criteria' \
+  '- [ ] A refund after 30 days is refused. Proof: focused refund test.' \
+  '## Scenarios' \
+  '| Given | When | Then |' \
+  '| --- | --- | --- |' \
+  '| A payment is 31 days old | Staff requests a refund | The request is refused |' \
+  '## Depends on' \
+  'None.' \
+  '## Relevant files' \
+  '- `src/refunds.ts`' \
+  '## Contract References' \
+  'None.' \
+  '## Approved Technical Changes' \
+  'None.' \
+  '## Visual Reference' \
+  '- Image · component: RefundForm · web: `docs/reference/refund-form.png`' >"$valid"
+invalid="$WORK/ticket-invalid.md"
+printf '%s\n' '# Refund' '## Acceptance Criteria' '- Return the money.' >"$invalid"
+checker="$WORK/defaults/.orc2/bin/orc2-ticket-check"
+if "$checker" "$invalid" >/dev/null 2>&1; then
+  echo "FAIL  incomplete ticket passed readiness"; fail=1
+elif "$checker" "$valid" >/dev/null 2>&1 \
+  && "$checker" --ui "$valid" >/dev/null 2>&1 \
+  && "$checker" - <"$valid" >/dev/null 2>&1; then
+  echo "PASS  ticket readiness rejects incomplete and accepts complete file/stdin packets"
+else
+  echo "FAIL  complete ticket failed readiness"; fail=1
+fi
+
+# A re-render must preserve live INBOX content byte-for-byte.
+d="$WORK/inbox-preserve"; mkdir -p "$d"; git -C "$d" init -q .
+"$ORC2_HOME/orc2" init "$d" --yes >/dev/null 2>&1
+printf '\n## Refund while offline\n- Answer: pending\n' >>"$d/docs/INBOX.md"
+before="$(shasum -a 256 "$d/docs/INBOX.md" | awk '{print $1}')"
+"$ORC2_HOME/orc2" render "$d" >/dev/null 2>&1
+after="$(shasum -a 256 "$d/docs/INBOX.md" | awk '{print $1}')"
+[[ "$before" == "$after" ]] && echo "PASS  render preserves docs/INBOX.md" \
+  || { echo "FAIL  render overwrote docs/INBOX.md"; fail=1; }
+
+# A pending legacy queue must block before any generated file changes.
+d="$WORK/legacy-inbox"; mkdir -p "$d/.scratch/decisions"; git -C "$d" init -q .
+printf '# Decision inbox\n\n### Legacy question\n- **Answer:** pending\n' >"$d/.scratch/decisions/INBOX.md"
+printf 'ORC2_PROJECT="legacy"\nORC2_TRACKER="scratch"\n' >"$d/.orc2-config.env"
+mkdir -p "$d/.orc2"; cp "$d/.orc2-config.env" "$d/.orc2/config.env"
+if "$ORC2_HOME/orc2" render "$d" >"$WORK/legacy-inbox.log" 2>&1; then
+  echo "FAIL  pending legacy INBOX did not block render"; fail=1
+elif [[ -e "$d/docs/INBOX.md" || -e "$d/.orc2/ORCHESTRATOR.md" ]]; then
+  echo "FAIL  legacy guard wrote files before stopping"; fail=1
+elif grep -q 'legacy INBOX' "$WORK/legacy-inbox.log"; then
+  echo "PASS  pending legacy INBOX blocks before render"
+else
+  echo "FAIL  legacy INBOX guard gave no actionable error"; fail=1
+fi
 
 # The resolved pin must be refs/heads/main exactly. `ls-remote <url> main`
 # matches by suffix and puts refs/heads/changeset-release/main first, so a
@@ -364,9 +460,9 @@ grep -q 'n<2 && /\^---\$/' "$ORC2_HOME/bin/orc2-agent" \
   && echo "PASS  bridge frontmatter parser stops after two delimiters" \
   || { echo "FAIL  bridge still strips --- lines from the role body"; fail=1; }
 
-# One authority per question: the reference-vs-accessibility collision had three.
+# One authority per question: the reference-vs-accessibility collision is human-owned.
 if grep -q 'Do not substitute a colour' "$ORC2_HOME/templates/skills/figma-to-code/SKILL.md" \
-   && grep -q 'you do not choose the replacement colour' "$ORC2_HOME/templates/fragments/decider-design-figma.md"; then
+   && grep -q 'reference loses and the human picks the replacement' "$ORC2_HOME/templates/ORCHESTRATOR.md"; then
   echo "PASS  accessibility-vs-reference has a single authority"
 else
   echo "FAIL  the a11y collision is routable to more than one authority"; fail=1
@@ -509,12 +605,23 @@ done
 # A skill already installed globally must not also be vendored locally, or the
 # copy shadows the user's own and goes stale against it.
 d2="$WORK/dedup"; mkdir -p "$d2"; git -C "$d2" init -q .
-fakeglobal="$WORK/fakeglobal"; mkdir -p "$fakeglobal/triage"
+fakeglobal="$WORK/fakeglobal"; mkdir -p "$fakeglobal/triage" "$fakeglobal/grill-with-docs" "$fakeglobal/to-tickets"
 printf -- '---\nname: triage\n---\nmine\n' >"$fakeglobal/triage/SKILL.md"
+printf -- '---\nname: grill-with-docs\ndisable-model-invocation: true\n---\nupstream grill\n' >"$fakeglobal/grill-with-docs/SKILL.md"
+printf -- '---\nname: to-tickets\ndisable-model-invocation: true\n---\nupstream tickets\n' >"$fakeglobal/to-tickets/SKILL.md"
+grill_before="$(shasum -a 256 "$fakeglobal/grill-with-docs/SKILL.md" | awk '{print $1}')"
+tickets_before="$(shasum -a 256 "$fakeglobal/to-tickets/SKILL.md" | awk '{print $1}')"
 ORC2_UPSTREAM_SKILLS="$fakeglobal" "$ORC2_HOME/orc2" init "$d2" --yes >/dev/null 2>&1
 [[ -d "$d2/.claude/skills/triage" ]] \
   && { echo "FAIL  a globally-installed skill was vendored locally anyway"; fail=1; } \
   || echo "PASS  globally-installed skills are not duplicated locally"
+grill_after="$(shasum -a 256 "$fakeglobal/grill-with-docs/SKILL.md" | awk '{print $1}')"
+tickets_after="$(shasum -a 256 "$fakeglobal/to-tickets/SKILL.md" | awk '{print $1}')"
+if [[ "$grill_before" == "$grill_after" && "$tickets_before" == "$tickets_after" ]]; then
+  echo "PASS  upstream planning skills remain byte-identical"
+else
+  echo "FAIL  upstream planning skill was modified"; fail=1
+fi
 
 # plan-app must tell the reader how to get what it names.
 grep -q 'orc2 skills' "$d/.claude/skills/plan-app/SKILL.md" \
@@ -532,6 +639,10 @@ grep -q 'cited skills reachable and agent-invocable' <<<"$out" \
 grep -qc 'gate cmd' <<<"$out" \
   && echo "PASS  doctor checks the gate commands" \
   || { echo "FAIL  doctor did not check the gate"; fail=1; }
+grep -q 'ticket readiness checker present' <<<"$out" \
+  && grep -q 'routes both local modifiers' <<<"$out" \
+  && echo "PASS  doctor checks readiness gate and local policy routing" \
+  || { echo "FAIL  doctor missed readiness gate or local policy routing"; fail=1; }
 
 # The bridge must refuse an unknown role rather than dispatching something.
 bridge="$WORK/figma-pi-2lane-postgres-codegen-slack/.orc2/bin/orc2-agent"

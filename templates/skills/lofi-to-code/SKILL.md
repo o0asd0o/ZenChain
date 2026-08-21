@@ -28,9 +28,9 @@ Everything in the right column comes from **the project's existing design tokens
 
 ## The gaps are not yours to fill
 
-Anything in that list is an open question. It goes back to the orchestrator, which routes it to the `decider`, which writes a record naming the actual values. You then implement the record.
+Anything material in that list is an open question. It goes back to the orchestrator, which routes it through the read-only decision advisor to `docs/INBOX.md`. The human answers, the issue packet is updated, and only then do you implement it.
 
-This is the whole reason a lo-fi pipeline can run unattended: the ambiguity is resolved once, in writing, instead of re-invented by every agent that reads the mock. An implementer that guesses produces a screen nobody can review, because there is nothing to review it against.
+The queue entry is not a contract. The updated acceptance criterion, scenario, or exact `## Contract References` entry is. An implementer that guesses produces a screen nobody can review.
 
 **Two exceptions you may decide yourself**, because the codebase already answers them:
 

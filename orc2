@@ -12,7 +12,7 @@
 #        --vendor-skills  copy skills from ~/.claude/skills instead of fetching upstream
 #
 # Everything the interview asks becomes a variable in <target>/.orc2/config.env.
-# Edit that file and `orc2 render` to change any decision later.
+# Edit that file and `orc2 render` to change the generated pipeline later.
 set -euo pipefail
 
 # Byte-wise locale. Every pattern in this script is ASCII, while the templates
@@ -192,10 +192,7 @@ interview() {
       ask ORC2_LANE_PREFIX "Lane database name prefix (the drop guard matches on it)" "${ORC2_PROJECT}_lane_"
       ask ORC2_DB_URI_VAR  "Env var holding the connection string" "DATABASE_URI" ;;
   esac
-  if [[ "$ORC2_DB" != none ]]; then
-    say "  → orc2 seeds a decision record for this choice, so an agent reads it as a"
-    say "    reversible decision rather than re-litigating the engine mid-issue."
-  fi
+  [[ "$ORC2_DB" != none ]] && say "  → the saved config is the authority for this engine choice."
 
   ask_choice ORC2_CODEGEN "Does the repo have generated artifacts or migrations a merge cannot update?" no \
     "no  — nothing generated; a merge is complete on its own" \
@@ -429,14 +426,14 @@ derive() {
   case "$ORC2_TRACKER" in
     scratch) export ORC2_ISSUE_GLOB=".scratch/<feature-slug>/issues/<NN>-<slug>.md"
              export ORC2_ISSUE_ROOT=".scratch"
-             export ORC2_DECISIONS_DIR=".scratch/decisions"
              export ORC2_STATUS_MECH="the \`Status:\` line in the issue file"
-             export ORC2_TRACKER_ONE_LINER="Local markdown — issues and PRDs live under \`.scratch/<feature-slug>/\`; no \`gh\`, no remote." ;;
+             export ORC2_TRACKER_ONE_LINER="Local markdown — issues and PRDs live under \`.scratch/<feature-slug>/\`; no \`gh\`, no remote."
+             export ORC2_TICKET_CHECK_CMD='.orc2/bin/orc2-ticket-check "$ISSUE_PATH"' ;;
     github)  export ORC2_ISSUE_GLOB="GitHub issue #<N>"
              export ORC2_ISSUE_ROOT="the tracker"
-             export ORC2_DECISIONS_DIR="docs/decisions"
              export ORC2_STATUS_MECH="the issue's labels"
-             export ORC2_TRACKER_ONE_LINER="GitHub Issues, driven with the \`gh\` CLI." ;;
+             export ORC2_TRACKER_ONE_LINER="GitHub Issues, driven with the \`gh\` CLI."
+             export ORC2_TICKET_CHECK_CMD='gh issue view "$ISSUE_NUMBER" --json body --jq .body | .orc2/bin/orc2-ticket-check -' ;;
   esac
 
   export ORC2_LANES_MODE="$([[ "$ORC2_LANES" == 1 ]] && echo off || echo on)"
@@ -488,21 +485,12 @@ derive() {
   export ORC2_QA_REF_ARG="$([[ "$ORC2_DESIGN" == none ]] && echo "" || echo " and the reference directory")"
   case "$ORC2_DB" in
     postgres) export ORC2_DB_RELEASE_CLAUSE=", drop the lane's database — **only if its name begins \`$ORC2_LANE_PREFIX\`**"
-              export ORC2_DB_ENGINE_NAME="PostgreSQL"
-              export ORC2_DB_RATIONALE="What this commits the project to: a running server in every environment that runs tests, \`createdb\`/\`dropdb\` around every lane, and real write concurrency — so a concurrency test that passes here is evidence, not an artefact of the engine. The development database is \`$ORC2_DEV_DB\` and is never dropped or reset by an agent; lane databases are named \`$ORC2_LANE_PREFIX*\` and that prefix is the only thing the drop guard will act on." ;;
+              ;;
     sqlite)   export ORC2_DB_RELEASE_CLAUSE=", delete the lane's database file — **only if its path begins \`$ORC2_LANE_PREFIX\`**"
-              export ORC2_DB_ENGINE_NAME="SQLite"
-              export ORC2_DB_RATIONALE="What this commits the project to: no server to run, and lane isolation that costs nothing more than a different file path — but also a single writer, so a test that asserts real write concurrency proves less here than it would on a server engine. Treat such a test as unproven rather than green. The development database file is \`$ORC2_DEV_DB\` and is never deleted by an agent; lane files are \`$ORC2_LANE_PREFIX*\` and that prefix is the only thing the delete guard will act on. The connection target is a path, so a lane whose \`.env\` edit silently failed falls back to the development file instead of failing to connect — verify the resolved path before every lane." ;;
+              ;;
     *)        export ORC2_DB_RELEASE_CLAUSE=""
-              export ORC2_DB_ENGINE_NAME="none"
-              export ORC2_DB_RATIONALE="" ;;
+              ;;
   esac
-  # Only claim the seeded engine record exists when one was actually written.
-  if [[ "$ORC2_DB" == none ]]; then
-    export ORC2_DB_RECORD_LINE="This project has no database, so introducing one is a decision, not an implementation detail."
-  else
-    export ORC2_DB_RECORD_LINE="The database engine this project uses is \`$ORC2_DB_ENGINE_NAME\`, and a record for that choice already exists."
-  fi
   export ORC2_IMPL_PR_CLAUSE="$([[ "$ORC2_TRACKER" == github ]] \
     && echo "The \`implement\` skill's PR-and-CI closeout is the orchestrator's job, not yours — do not run \`gh\`." \
     || echo "The \`implement\` skill requires opening a pull request and polling CI before closeout. This repository has no remote and no CI. Do not run \`gh\`.")"
@@ -594,7 +582,7 @@ save_config() {
   local v
   { say "# orc2 pipeline config for $ORC2_PROJECT — edit, then run: orc2 render"
     # printf %q so a value containing spaces, quotes, or arrows survives sourcing.
-    for v in $(env | grep '^ORC2_' | grep -vE '^ORC2_(GATE_LIST|GATE_BLOCK|GATE_COUNT|GATE_FIRST|ISSUE_GLOB|ISSUE_ROOT|DECISIONS_DIR|STATUS_MECH|LANES_MODE|LANES_SELECT_SUFFIX|LANES_PRD_CLAUSE|REF_DIR|MENTION_LINE|DELEGATION|BUILD_ORDER_LINE|QA_REF_ARG|DB_RELEASE_CLAUSE|IMPL_PR_CLAUSE|FIGMA_ROOT_CLAUSE|SLACK_MENTION_CLAUSE|DB_ENGINE_NAME|DB_RATIONALE|DB_RECORD_LINE|SKILL_HOW|EXPLORER_HOW|SKILLS_DIR|SKILLS_MODE|SEED_NUM|SEED_DATE|HOME|UPSTREAM_SKILLS|AGENT_MODEL|CODEX_APPROVAL|INCLUDE_DEPTH)=' \
+    for v in $(env | grep '^ORC2_' | grep -vE '^ORC2_(GATE_LIST|GATE_BLOCK|GATE_COUNT|GATE_FIRST|ISSUE_GLOB|ISSUE_ROOT|STATUS_MECH|TICKET_CHECK_CMD|LANES_MODE|LANES_SELECT_SUFFIX|LANES_PRD_CLAUSE|REF_DIR|MENTION_LINE|DELEGATION|BUILD_ORDER_LINE|QA_REF_ARG|DB_RELEASE_CLAUSE|IMPL_PR_CLAUSE|FIGMA_ROOT_CLAUSE|SLACK_MENTION_CLAUSE|SKILL_HOW|EXPLORER_HOW|SKILLS_DIR|SKILLS_MODE|HOME|UPSTREAM_SKILLS|AGENT_MODEL|CODEX_APPROVAL|INCLUDE_DEPTH)=' \
       | cut -d= -f1 | sort); do
       # Plain double quotes stay hand-editable; %q is the fallback for values
       # that would otherwise re-interpret when sourced.
@@ -605,11 +593,38 @@ save_config() {
   say "  wrote .orc2/config.env"
 }
 
+legacy_inbox_has_entries() { # legacy_inbox_has_entries <file>
+  local f="$1" headings
+  grep -Eq '^-[[:space:]]+(\*\*)?Answer:(\*\*)?[[:space:]]*pending([[:space:]]|$)' "$f" 2>/dev/null && return 0
+  headings="$(grep -c '^###[[:space:]]' "$f" 2>/dev/null || true)"
+  (( headings > 1 ))
+}
+
+guard_legacy_inbox() {
+  local f
+  for f in "$TARGET/.scratch/decisions/INBOX.md" "$TARGET/docs/decisions/INBOX.md"; do
+    [[ -f "$f" ]] || continue
+    if legacy_inbox_has_entries "$f"; then
+      say "orc2: legacy INBOX has unresolved entries at ${f#$TARGET/}." >&2
+      say "orc2: resolve or migrate them to docs/INBOX.md before rendering; nothing was written." >&2
+      return 1
+    fi
+  done
+}
+
 do_render() {
   derive
+  guard_legacy_inbox
   head2 "Rendering into $TARGET"
 
   write_out "$TPL/ORCHESTRATOR.md" "$TARGET/$ORC2_PIPELINE_DIR/ORCHESTRATOR.md"
+
+  # Tracker-neutral, deterministic gate. The orchestrator runs it against a
+  # local issue file or a tracker body before any implementation role starts.
+  mkdir -p "$TARGET/.orc2/bin"
+  cp "$ORC2_HOME/bin/orc2-ticket-check" "$TARGET/.orc2/bin/orc2-ticket-check"
+  chmod +x "$TARGET/.orc2/bin/orc2-ticket-check"
+  say "  wrote .orc2/bin/orc2-ticket-check"
 
   # Role prompts — native location for the runner that spawns them.
   local role
@@ -677,31 +692,16 @@ do_render() {
   write_out "$TPL/docs/triage-labels-$ORC2_TRACKER.md" "$TARGET/docs/agents/triage-labels.md"
   write_out "$TPL/docs/domain.md"                     "$TARGET/docs/agents/domain.md"
   write_out "$TPL/docs/flow.md"                       "$TARGET/docs/agents/flow.md"
+  write_out "$TPL/docs/grill-with-docs-policy.md"     "$TARGET/docs/agents/grill-with-docs-policy.md"
+  write_out "$TPL/docs/ticket-writing-policy.md"      "$TARGET/docs/agents/ticket-writing-policy.md"
   # Read by implementer, fixer, and reviewer only. Deliberately NOT in the agent
   # file: that loads into every session and every subagent, and explorer, qa and
   # decider never write product code.
   write_out "$TPL/docs/code-standards.md"             "$TARGET/docs/agents/code-standards.md"
 
-  mkdir -p "$TARGET/$ORC2_DECISIONS_DIR"
-  if [[ ! -f "$TARGET/$ORC2_DECISIONS_DIR/LOG.md" ]]; then
-    { say "# Decision log"; say ""
-      say "One line per record. The files in this directory are the numbering authority; this index is regenerable."
-      say ""
-    } >"$TARGET/$ORC2_DECISIONS_DIR/LOG.md"
-    say "  wrote $ORC2_DECISIONS_DIR/LOG.md"
-  fi
-
-  # Seed the engine choice as a real record, so agents read the stack as a
-  # reversible decision instead of re-litigating it mid-issue. Numbered from the
-  # files on disk, exactly as the decider numbers its own; never overwritten.
-  if [[ "$ORC2_DB" != none ]] && ! ls "$TARGET/$ORC2_DECISIONS_DIR"/*-database-engine.md >/dev/null 2>&1; then
-    local existing seed
-    existing="$(ls "$TARGET/$ORC2_DECISIONS_DIR" 2>/dev/null | grep -c '^[0-9][0-9][0-9]-' || true)"
-    seed="$(printf '%03d' $((existing + 1)))"
-    export ORC2_SEED_NUM="$seed" ORC2_SEED_DATE="${ORC2_SEED_DATE:-$(date +%F)}"
-    write_out "$TPL/decisions/database-engine.md" "$TARGET/$ORC2_DECISIONS_DIR/$seed-database-engine.md"
-    say "- [$seed: The project stores data in $ORC2_DB_ENGINE_NAME]($seed-database-engine.md) — seeded at setup, Stakes: high" \
-      >>"$TARGET/$ORC2_DECISIONS_DIR/LOG.md"
+  # A human-owned queue: initialise once, then never overwrite pending answers.
+  if [[ ! -f "$TARGET/docs/INBOX.md" ]]; then
+    write_out "$TPL/docs/INBOX.md" "$TARGET/docs/INBOX.md"
   fi
 
   write_agent_skills_block
@@ -1025,11 +1025,24 @@ do_doctor() {
       [[ -n "$ORC2_DEV_DB" && -e "$TARGET/$ORC2_DEV_DB" ]] && say "PASS  development database file exists: $ORC2_DEV_DB" \
         || say "WARN  development database file $ORC2_DEV_DB does not exist yet — the first migration creates it" ;;
   esac
-  if [[ "$ORC2_DB" != none ]]; then
-    ls "$TARGET/$ORC2_DECISIONS_DIR"/*-database-engine.md >/dev/null 2>&1 \
-      && say "PASS  engine decision record present ($ORC2_DB_ENGINE_NAME)" \
-      || say "WARN  no engine decision record — run \`orc2 render\` so agents read the choice as a decision"
-  fi
+  [[ -f "$TARGET/docs/INBOX.md" ]] && say "PASS  human decision queue present (docs/INBOX.md)" \
+    || { say "WARN  docs/INBOX.md missing — run \`orc2 render\`"; }
+  [[ -x "$TARGET/.orc2/bin/orc2-ticket-check" ]] && say "PASS  ticket readiness checker present" \
+    || { say "FAIL  .orc2/bin/orc2-ticket-check missing — run \`orc2 render\`"; fail=1; }
+  local policy agents_target
+  for policy in grill-with-docs-policy ticket-writing-policy; do
+    [[ -f "$TARGET/docs/agents/$policy.md" ]] && say "PASS  local modifier $policy present" \
+      || { say "FAIL  local modifier $policy missing — run \`orc2 render\`"; fail=1; }
+  done
+  agents_target="${ORC2_AGENTS_FILE:-AGENTS.md}"
+  grep -q 'grill-with-docs-policy.md' "$TARGET/$agents_target" 2>/dev/null \
+    && grep -q 'ticket-writing-policy.md' "$TARGET/$agents_target" 2>/dev/null \
+    && say "PASS  Agent skills block routes both local modifiers" \
+    || { say "FAIL  $agents_target does not route both local modifiers — run \`orc2 render\`"; fail=1; }
+  local legacy
+  for legacy in "$TARGET/.scratch/decisions" "$TARGET/docs/decisions"; do
+    [[ -d "$legacy" ]] && say "INFO  legacy decision records present at ${legacy#$TARGET/}; preserved but non-authoritative"
+  done
 
   if [[ "$ORC2_DESIGN" == figma ]]; then
     curl -sS -m 3 -o /dev/null http://127.0.0.1:3845/mcp 2>/dev/null \
@@ -1084,6 +1097,10 @@ do_doctor() {
 
   [[ -f "$TARGET/docs/agents/flow.md" ]] && say "PASS  flow doc present (the seam is documented)" \
     || say "WARN  docs/agents/flow.md missing — run \`orc2 render\`"
+  for c in grill-with-docs-policy ticket-writing-policy; do
+    [[ -f "$TARGET/docs/agents/$c.md" ]] && say "PASS  local modifier present ($c)" \
+      || { say "WARN  docs/agents/$c.md missing — run \`orc2 render\`"; }
+  done
   if [[ -n "$ORC2_AGENTS_FILE" ]]; then
     grep -q 'orc2:agent-skills:start' "$TARGET/$ORC2_AGENTS_FILE" 2>/dev/null \
       && say "PASS  Agent skills block present in $ORC2_AGENTS_FILE (explicit target)" \

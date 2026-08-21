@@ -13,9 +13,14 @@ rather than editing between the markers — a re-render replaces this block.
 
 Five canonical roles, recorded as {{STATUS_MECH}}. See `docs/agents/triage-labels.md`.
 
-### Domain docs
+### Planning modifiers
 
-Glossaries, ADRs, and the pipeline's own decision records under `{{DECISIONS_DIR}}/`. See `docs/agents/domain.md`.
+- When running `/grill-with-docs`, read `docs/agents/grill-with-docs-policy.md`; it limits documentation without modifying the upstream skill.
+- When running `/to-tickets` or `/to-issues`, read `docs/agents/ticket-writing-policy.md`; it defines the tracker-neutral agent-ready ticket packet.
+
+### Human decision queue
+
+Open questions live only in `docs/INBOX.md`. The issue packet, not the queue entry, is the implementation contract after the human answers.
 
 ### The pipeline
 

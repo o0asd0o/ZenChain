@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# Fail-closed structural readiness check for either a markdown issue file or a
+# tracker body supplied on stdin. Semantic conflicts still require human review.
+set -euo pipefail
+export LC_ALL=C
+
+ui=0
+if [[ "${1:-}" == "--ui" ]]; then ui=1; shift; fi
+source_path="${1:--}"
+[[ $# -le 1 ]] || { echo "usage: orc2-ticket-check [--ui] [issue-file|-]" >&2; exit 2; }
+
+tmp=""
+if [[ "$source_path" == "-" ]]; then
+  tmp="$(mktemp -t orc2-ticket.XXXXXX)"
+  trap 'rm -f "$tmp"' EXIT
+  cat >"$tmp"
+  source_path="$tmp"
+fi
+[[ -f "$source_path" ]] || { echo "NOT READY: issue body not found: $source_path" >&2; exit 1; }
+
+fail=0
+problem() { echo "NOT READY: $*" >&2; fail=1; }
+has_heading() { grep -Fqx "$1" "$source_path"; }
+section() {
+  awk -v heading="$1" '
+    $0 == heading { inside=1; next }
+    inside && /^## / { exit }
+    inside { print }
+  ' "$source_path"
+}
+
+required='Acceptance Criteria
+Scenarios
+Depends on
+Relevant files
+Contract References
+Approved Technical Changes'
+while IFS= read -r name; do
+  heading="## $name"
+  if ! has_heading "$heading"; then
+    problem "missing exact heading: $heading"
+    continue
+  fi
+  body="$(section "$heading")"
+  [[ -n "$(printf '%s\n' "$body" | sed '/^[[:space:]]*$/d')" ]] \
+    || problem "empty section: $heading (write None when allowed)"
+done <<<"$required"
+
+if (( ui )) && ! has_heading '## Visual Reference'; then
+  problem 'UI fidelity ticket is missing exact heading: ## Visual Reference'
+fi
+
+if has_heading '## Acceptance Criteria'; then
+  ac="$(section '## Acceptance Criteria')"
+  grep -Eq '^[[:space:]]*-[[:space:]]*\[[ xX]\][[:space:]]+[^[:space:]]' <<<"$ac" \
+    || problem 'Acceptance Criteria needs at least one checkable item'
+fi
+
+if has_heading '## Scenarios'; then
+  scenarios="$(section '## Scenarios')"
+  grep -Eiq '(^|[^[:alpha:]])(TODO|TBD|pending)([^[:alpha:]]|$)|\?' <<<"$scenarios" \
+    && problem 'Scenarios contains an unresolved question or placeholder'
+fi
+
+if has_heading '## Contract References'; then
+  refs="$(section '## Contract References')"
+  if ! grep -Eq '^[[:space:]]*(None|-[[:space:]]+None)[[:space:].]*$' <<<"$refs"; then
+    grep -Eiq 'relevant[[:space:]]+(docs?|ADRs?)|all[[:space:]]+(docs?|ADRs?)|scan[[:space:]].*(docs?|ADRs?)' <<<"$refs" \
+      && problem 'Contract References is broad; cite exact paths/headings or write None'
+  fi
+fi
+
+(( fail == 0 )) || exit 1
+echo "READY"

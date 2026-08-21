@@ -53,7 +53,7 @@ features/   the actual UI and logic, in one folder per capability.
 - **The why is not visible.** A constraint from outside this file: an API that returns 200 on failure, an ordering another system depends on, a rate limit, a browser or hardware quirk, a legal requirement.
 - **The obvious approach is wrong.** Say what you tried and why it failed, or someone will "fix" it back within a month.
 - **You cut a corner deliberately.** Name the ceiling and the upgrade path, so it reads as a decision rather than an oversight.
-- **A decision lives elsewhere.** Point at the issue, ADR, or `{{DECISIONS_DIR}}/` record that settled it. One line and a path beats a paragraph re-arguing it.
+- **A constraint lives elsewhere.** Point at the issue or its exact `## Contract References` citation. One line and a path beats a paragraph re-arguing it.
 
 **Never write:**
 
@@ -70,4 +70,4 @@ A useful test before you keep a comment: **delete it and re-read the code.** If 
 
 ## When this file and the existing code disagree
 
-The existing code is not automatically right, and neither is this file. Say so in your report rather than silently copying the older pattern or silently overriding it. If the disagreement is a real contradiction rather than drift, it goes to the `decider` — a standard and a shipped pattern that contradict each other is exactly the class of question a fixer must not settle by picking a side.
+The existing code is not automatically right, and neither is this file. Say so in your report rather than silently copying the older pattern or silently overriding it. If a binding contradiction changes behavior, route it through the read-only decision advisor to `docs/INBOX.md`; a fixer must not pick a side.

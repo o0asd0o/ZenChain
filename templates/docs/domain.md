@@ -1,42 +1,13 @@
-# Domain docs
+# Domain documentation
 
-How the pipeline's roles should consume this repo's domain documentation when exploring the codebase.
+Domain glossaries and human-approved ADRs may exist, but implementation roles do not browse them. The issue packet is the implementation contract.
 
-## Before exploring, read these
+## Explicit routing only
 
-- **`CONTEXT-MAP.md`** at the repo root, if it exists — it points at one `CONTEXT.md` per bounded context. Read each one relevant to the topic.
-- **`docs/adr/`** — system-wide architectural decisions.
-- **`src/<context>/docs/adr/`** — context-scoped decisions. Read the ADRs that touch the area you are about to work in.
-- **`{{DECISIONS_DIR}}/`** — decision records written by the `decider` during pipeline runs. These are not ADRs; they are the audit trail of choices made on the human's behalf, and a record on your area is as binding as an ADR until it is overturned.
+An issue that depends on a glossary term or ADR must name the exact path and heading under `## Contract References`. Implementer, fixer, reviewer, and QA read only those citations. “Relevant domain docs” or “ADRs touching this area” is not a valid reference and makes the ticket not ready.
 
-If any of these do not exist, **proceed silently.** Do not flag their absence and do not suggest creating them upfront. The domain-modeling skill creates them lazily, when terms or decisions actually get resolved.
+`CONTEXT.md` remains vocabulary only: project-specific concepts, one or two sentences each, no schemas, workflows, or implementation notes. Use its canonical term only when the ticket cites that heading.
 
-## File structure
+ADRs are created only through the human approval gate in `docs/agents/grill-with-docs-policy.md`. They are short architecture constraints, not a running decision journal. The pipeline never creates numbered decision records.
 
-```
-/
-├── CONTEXT-MAP.md
-├── docs/adr/                          ← system-wide decisions
-├── {{DECISIONS_DIR}}/                 ← pipeline decision records
-└── src/
-    ├── <context-a>/
-    │   ├── CONTEXT.md                 ← glossary for this context
-    │   └── docs/adr/                  ← context-specific decisions
-    └── <context-b>/
-        ├── CONTEXT.md
-        └── docs/adr/
-```
-
-## Use the glossary's vocabulary
-
-When your output names a domain concept — an issue title, a refactor proposal, a hypothesis, a test name — use the term as defined in the relevant context's `CONTEXT.md`. Do not drift to synonyms the glossary explicitly avoids; those are decided vocabulary, not style preferences.
-
-If the concept you need is not in the glossary yet, that is a signal: either you are inventing language the project does not use (reconsider), or there is a real gap (note it).
-
-## Flag conflicts, never override silently
-
-If your output contradicts an existing ADR or decision record, surface it explicitly:
-
-> _Contradicts ADR-0007 (event-sourced orders) — but worth reopening because…_
-
-In the pipeline, that is not a note you write and move past. A contradiction between an issue and a recorded decision is routed to the `decider`, and the role that found it stops on that finding rather than picking a side.
+When an issue contradicts an exact contract reference, stop. The read-only decision advisor prepares a plain-language question; the orchestrator places it in `docs/INBOX.md`; the human updates the controlling contract before work resumes.

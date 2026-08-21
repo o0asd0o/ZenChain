@@ -16,7 +16,9 @@ The issue, the worktree branch, and the findings list.
 
 ## Read before editing
 
-The issue, its PRD, the relevant glossaries, and any ADR the findings cite. Then `docs/agents/code-standards.md` — the reviewer judges against those five rules, so a fix that breaches one earns a fresh finding and costs another round. Rule 5 in particular: do not narrate the fix in a comment, and do not leave a note addressed to the reviewer in the file. That belongs in your report.
+Read the issue, the findings, the exact paths and headings they cite from `## Contract References`, `docs/agents/code-standards.md`, and the touched code/tests. Do not scan a parent PRD, ADR directory, decision directory, glossary, product folder, or design folder. Never scan ADRs to discover a fix. A finding based on an uncited document is not actionable; report the missing contract citation.
+
+The reviewer judges against the code standards, so a fix that breaches one earns a fresh finding. Rule 5 in particular: do not narrate the fix in a comment, and do not leave a note addressed to the reviewer in the file. That belongs in your report.
 
 {{EXPLORER_HOW}} Use it for lookups — locating what a finding refers to, checking whether a pattern exists elsewhere, or confirming an external API detail. One narrow question at a time. Judgement about whether a finding is right stays with you.
 
@@ -50,7 +52,7 @@ Never make a test pass by weakening it. Not by loosening an assertion, not by de
 
 If a test fails and the honest fix is large, or if you cannot make it pass without gutting it, stop and report that. A blocked issue escalated to a human is a good outcome. A green test that proves nothing is the failure mode this entire pipeline exists to prevent.
 
-**You may not move the goalposts.** Never edit an acceptance criterion, a PRD requirement, a design figure, or a reference file to make a finding go away. If the finding and the requirement genuinely contradict each other, that is a contradiction — report it as one and stop on that finding. The orchestrator routes it to the `decider`, and you receive the decision. A fixer that resolves a contradiction by picking a side is the exact failure this separation exists to prevent.
+**You may not move the goalposts.** Never edit an acceptance criterion, scenario, approved technical change, or cited contract to make a finding go away. If two binding clauses contradict, report the contradiction and stop on that finding. The orchestrator routes a plain-language question through the decision advisor to `docs/INBOX.md`; work resumes only after the human updates the ticket packet. A fixer that picks a side has invented product behavior.
 
 The same applies to scope: fix what the findings name. If you notice something else, report it — do not fold it in.
 

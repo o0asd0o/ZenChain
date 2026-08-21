@@ -24,4 +24,4 @@ done
 
 It means an agent must not attempt this. Never use it on a successful close — closing the issue is how the pipeline says done. Mixing the two makes finished and blocked work indistinguishable in a label filter, which is the one thing the filter exists for.
 
-A closed issue may still carry open questions for a person — an unverified figure, a flagged design conflict. Those go in a closing comment and surface at the PRD checkpoint. They do not reopen the issue, because the _work_ is finished; what remains is a decision, not an implementation.
+A blocking implementation question carries `needs-info` and keeps the issue open. It lives in `docs/INBOX.md` until the human answer updates the issue packet. A closed issue may retain a non-blocking human-eyes observation, but no unresolved contract choice.

@@ -12,7 +12,7 @@ read -r -d '' TEXT <<'EOF'
 {{MENTION_LINE}}
 
 • *Gate:*  green
-• *Decisions:*  none to review
+• *Questions:*  none
 • *Next:*  safe to start *<next>*
 EOF
 curl -fsS -X POST -H 'Content-type: application/json' \
@@ -23,11 +23,10 @@ curl -fsS -X POST -H 'Content-type: application/json' \
 
 The message uses Slack `mrkdwn` — an emoji + `*bold title*` first line so it is scannable on a phone, the mention on its own line, then `•`-bulleted `*Label:*  value` fields. Keep it to those few lines. It states which of three states the run ended in, and always names what comes next:
 
-- **Blocked — needs you.** QA failed its rounds, reference capture hit a limit, a **Stop and ask a human** item fired, or the decider refused something for having no reversal path. `:warning:  *… — STOPPED*`, then `• *Blocked:*` and `• *Needs:* your call before <next>`.
-- **Passed, but decisions to review.** PASS, but the run made `Stakes: high` decision records, or built on an earlier record whose reversal cost has now changed. `:ballot_box_with_check:  *… — PASS*`, then `• *Review first:* N high-stakes decisions`.
-- **Passed clean.** PASS, gate green, no high-stakes decisions pending. `:white_check_mark:`, as in the template above.
+- **Blocked — needs you.** QA failed its rounds, reference capture hit a limit, or `docs/INBOX.md` has a blocking question. `:warning:  *… — STOPPED*`, then `• *Blocked:*` and `• *Needs:* answer in docs/INBOX.md before <next>`.
+- **Passed, questions pending.** PASS with non-lane questions still in `docs/INBOX.md`. `:ballot_box_with_check:  *… — PASS*`, then `• *Questions:* N pending`.
+- **Passed clean.** PASS, gate green, INBOX empty. `:white_check_mark:`, as in the template above.
 
 The notification never replaces the checkpoint. A PASS still **stops** here for the human; the notification only tells them the verdict and the next step, it does not authorise starting the next PRD unattended.
 
 **Naming `<next>`** — take it from the build order: {{BUILD_ORDER_LINE}} If the next PRD still has an unbuilt sibling dependency, say what is still blocking it rather than naming it as clear.
-

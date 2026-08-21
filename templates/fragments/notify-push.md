@@ -5,7 +5,7 @@ The human is not watching an unattended run. Send **one** push notification the 
 Use the `PushNotification` tool. Keep it to a title and a line: the verdict, and what it needs from them.
 
 - **Blocked** — `{{PROJECT}} · <prd> STOPPED` / `<blocker> — needs your call before <next>`
-- **Passed, decisions to review** — `{{PROJECT}} · <prd> PASS` / `N high-stakes decisions to review before <next>`
+- **Passed, questions pending** — `{{PROJECT}} · <prd> PASS` / `N questions in docs/INBOX.md before <next>`
 - **Passed clean** — `{{PROJECT}} · <prd> PASS` / `Gate green. Safe to start <next>.`
 
 The full report still goes to the terminal; the push is the pointer, not the report.
@@ -13,4 +13,3 @@ The full report still goes to the terminal; the push is the pointer, not the rep
 The notification never replaces the checkpoint. A PASS still **stops** here for the human; the push only tells them the verdict, it does not authorise starting the next PRD unattended.
 
 **Naming `<next>`** — take it from the build order: {{BUILD_ORDER_LINE}} If the next PRD still has an unbuilt sibling dependency, say what is still blocking it rather than naming it as clear.
-

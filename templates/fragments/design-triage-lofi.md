@@ -9,4 +9,4 @@ The mocks in `{{LOFI_DIR}}/` are intent, not a contract. They fix layout, hierar
 - Every interaction state the mock does not draw: hover, focus, disabled, loading, empty, error.
 - What the screen does at the narrowest supported width, if the mock is desktop-only.
 
-Anything unanswered is an open question, and it goes to the `decider` — not to the implementer as a guess, and not to the human unless the decider refuses it. The decider's record then becomes the missing part of the contract, and the issue links it. That record is why a lo-fi pipeline can run unattended at all: the ambiguity is resolved once, in writing, instead of re-invented by every agent that reads the mock.
+Anything material that remains unanswered makes the ticket not ready. The read-only decision advisor prepares one plain-language question and real-world scenario; the orchestrator appends it to `docs/INBOX.md`, sets `needs-info`, and stops the lane. After the human answers, write the result into the issue's acceptance criteria, scenarios, or exact contract references before implementation.

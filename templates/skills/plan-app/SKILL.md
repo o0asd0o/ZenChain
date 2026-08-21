@@ -39,7 +39,7 @@ orc2 render               # then drops the per-project copies that are now redun
 
 ## Step 1 — Grill the app-wide question
 
-Open `/grill-with-docs` (it writes glossary entries and ADRs as it goes, which is the point — this session's output is a paper trail, not just a plan). Give it one app-wide question: **what is this application, and what has to be true for it to ship?**
+Open `/grill-with-docs` and first read `docs/agents/grill-with-docs-policy.md`. The local policy keeps glossary entries small, collects ADR candidates until completion, and requires human approval before an ADR is written. Give it one app-wide question: **what is this application, and what has to be true for it to ship?**
 
 The agenda below is what must come out with an answer. An unanswered item is not a gap to fill later — it is the thing that will stall a lane at 3am, so push until it is settled or explicitly deferred with a named trigger.
 
@@ -54,7 +54,7 @@ Rules for a batch:
 - **Group by batch, not by topic.** Questions from different sections belong in one batch if none depends on the others. Do not walk the sections in order for tidiness — that reintroduces the serialisation the batching exists to avoid.
 - **Lead each option with the recommendation** so it can be accepted in a word. Most answers here have an obvious default for the app in question; make the human confirm rather than compose.
 - **One screen per batch.** Four questions with a one-line explainer each. If a batch needs a paragraph of setup to make sense, it is two batches, or it is behind a gate you missed.
-- **Never batch a question whose answer you can read.** Check the repo, `.orc2/config.env`, and the existing decision records first. Asking what the gate command is when it is already in the config is how a grilling session loses the human's patience in the first two minutes.
+- **Never batch a question whose answer you can read.** Check the repo and `.orc2/config.env` first. Asking what the gate command is when it is already in config loses the human's patience.
 - **Batch the follow-ups too.** When a gate opens, the questions behind it are usually independent of each other — send them as one batch, not as a new one-at-a-time chain.
 
 The five real gates, and nothing else:
@@ -79,14 +79,14 @@ Nothing here depends on anything. Send it as one batch; it opens three of the fi
 
 #### Batch B — stack and setup
 
-Independent of Batch A and of each other. Every one becomes an ADR, and every one binds the implementer.
+Independent of Batch A and of each other. Capture answers in the specs. Only candidates that pass the local ADR policy and receive human approval become ADRs.
 
 - Language, runtime, and package manager.
 - Framework, and the rendering model if there is a UI.
 - Hosting and deploy target. Can the whole thing run locally without credentials? If not, say what cannot, because every future test depends on it.
 - Repo shape: single package or workspace, and where code lives.
 
-**Two of these are already answered — read, do not ask.** The data store engine is a decision record written by `orc2 init`; the gate commands are `ORC2_GATE` in `.orc2/config.env`. Confirm them in one line each. If the grilling genuinely contradicts the engine record, supersede it explicitly rather than quietly assuming the new answer.
+**Two of these are already answered — read, do not ask.** The data store engine is `ORC2_DB` and the gate commands are `ORC2_GATE` in `.orc2/config.env`. Confirm them in one line each. A proposed change belongs in the relevant ticket's `## Approved Technical Changes` after human approval.
 
 #### Batch C — operations
 
@@ -147,7 +147,7 @@ A generic set that covers most applications, to adapt rather than adopt:
 | 3 | **Core domain** (often 2–4 areas) | The actual product capability, split by vertical | Where most of the work is |
 | 4 | **Data & persistence** | Schema, migrations, seeding, backup and restore | Often folded into Foundation and the domain areas |
 | 5 | **Interface & navigation** | Screens, routing, empty and error states, responsive behaviour | Only if there is a UI |
-| 6 | **Integrations** | Third-party services, webhooks, callbacks | Each one is a trust boundary and a decision record |
+| 6 | **Integrations** | Third-party services, webhooks, callbacks | Each is a trust boundary and must be human-approved in the ticket |
 | 7 | **Observability** | Structured logs, metrics, error tracking, alerts on the one path that must never break | Not optional. Without it, production failures are anecdotes |
 | 8 | **Security hardening** | Threat model written down, authorisation tests per boundary, rate limits, secrets handling, dependency policy, retention and deletion | See below — this is *in addition to* per-area criteria |
 | 9 | **Release & operations** | Environments, deploy, migration safety, rollback, runbook | Last, and it must exist |
@@ -162,7 +162,7 @@ This is the part that is most often got wrong, so it is stated twice on purpose.
 
 **Its own area.** The hardening PRD covers what no single feature owns: the written threat model, authorisation tests that try the wrong account against every reachable object, rate limits, secret handling and rotation, the dependency and advisory policy, retention and deletion. Nobody's feature ticket will do these, which is exactly why they need a PRD.
 
-If a security question turns out to be a genuine design decision — how sessions are stored, what a permission means — route it to the `decider`, which records it at `Stakes: high` because it touches access control.
+If a security question remains unresolved, put it in `docs/INBOX.md` in layman's terms with a real-world scenario. The human answer must update the PRD or issue before ticketing continues.
 
 ## Step 3 — One spec per area
 
@@ -179,12 +179,15 @@ Write them all before slicing any of them. A PRD written in isolation contradict
 
 ## Step 4 — Slice, then hand over
 
-Per PRD, run `/to-tickets`. Each ticket must carry what the pipeline reads:
+Per PRD, run `/to-tickets` or `/to-issues` after reading `docs/agents/ticket-writing-policy.md`. Each ticket must carry the full tracker-neutral packet:
 
-- acceptance criteria — the reviewer's contract
+- `## Acceptance Criteria` — the reviewer's contract
+- `## Scenarios` — resolved boundary cases
 - `## Depends on` — how the orchestrator picks what to run
 - `## Relevant files` — the change surface, used to decide what may run in parallel
-- `## Visual reference` on screen work, with a tagged source
+- `## Contract References` — exact path and heading, or `None`
+- `## Approved Technical Changes` — exact material additions, or `None`
+- `## Visual Reference` on screen work, with a tagged source
 
 Then record the area order as `ORC2_BUILD_ORDER` in `.orc2/config.env` and run `orc2 render`, so the orchestrator and the entry-point skills all state the same order.
 
@@ -195,5 +198,5 @@ Only now does `/run-prd <area>` mean anything. Run the first area, stop at its h
 - **Do not ask these one at a time.** The agenda is long; walked serially it is an interrogation, and the human stops reading around question twelve. Batch everything not behind one of the five gates.
 - **Do not ask what you can read.** The engine, the design contract, and the gate commands are already recorded. Confirming them costs one line; asking them costs trust.
 - **Do not slice everything up front and start the pipeline on all of it.** The first area will teach you something about the plan. Build it, look, adjust.
-- **Do not let an agent invent the tech stack.** Every stack answer is an ADR or a decision record, made by a person, in this session.
+- **Do not let an agent invent the tech stack.** Existing manifest/config is factual authority; every material change is human-approved in the ticket.
 - **Do not skip the grilling because the app seems obvious.** The obvious apps are the ones where two people held two different models of it and nobody noticed until integration.

@@ -41,13 +41,13 @@ Capture the reference before QA runs, never during. A loop that re-fetches per r
 
 Never auto-accept QA's "needs human eyes" list, and never hand it to the fixer. It goes to the human, always — that list exists because screenshot comparison cannot reliably judge spacing, proportion, or type, and quietly accepting it would defeat the point of separating the two buckets.
 
-## Blockers go to the decider; a short list goes to the human
+## Blockers go to the human through one queue
 
-Route blockers, open questions, and document contradictions to the `decider`. It decides on the human's behalf and writes a record under `{{DECISIONS_DIR}}/`; you apply the decision and link the record from the issue.
+Route material blockers, open questions, and binding contradictions to the read-only `decider`. It prepares one layman question with a real-world scenario. Append it to `docs/INBOX.md`, set the issue to `needs-info`, and stop that lane.
 
-Halt for the human only on the orchestrator's stop list — anything destructive or outward-facing, anything needing credentials you do not have, and anything the decider itself refuses for having no reversal path.
+After the human answers, update the controlling acceptance criterion, scenario, PRD direction, or explicitly approved ADR; remove the INBOX entry; return the issue to `ready-for-agent`; then resume. Never implement directly from chat or the queue entry.
 
-At the PRD checkpoint, present every decision record made during the run, high-stakes first. An escalated PRD is a working pipeline. A PRD marked done that does not do what it claims is a failed one.
+At the PRD checkpoint, list remaining INBOX entries. An escalated PRD is a working pipeline. A PRD marked done that does not do what it claims is a failed one.
 
 ## Report
 

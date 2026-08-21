@@ -69,7 +69,7 @@ The tools that matter:
 
    Substituting quietly is the exact move this pipeline forbids — it resolves a contradiction by picking a side, and it guarantees QA later raises a fidelity finding the fixer is not allowed to fix.
 
-   If an audited replacement pair is **already recorded** — in the design system, an ADR, or a `{{DECISIONS_DIR}}/` record — use it and cite the record. That is applying a decision, not making one.
+   Apply a replacement only when the issue packet names it under an exact `## Contract References` citation or acceptance criterion. Never scan ADRs or a decision directory for one.
 3. **Responsive check** at every width the reference covers. Both must match the corresponding frame.
 4. **The gate** — {{GATE_LIST}}. Document any pre-existing failure; never claim a clean gate when one was already failing.
 

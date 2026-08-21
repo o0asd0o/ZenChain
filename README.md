@@ -20,17 +20,17 @@ orc2 doctor                            # check the install and its backends
 | `.claude/agents/*.md`               | role prompts, for roles running as native Claude subagents        |
 | `.orc2/agents/*.md`                  | role prompts, for roles dispatched through the bridge             |
 | `.orc2/bin/orc2-agent`                | the bridge — runs a role headlessly on claude, codex, or pi       |
+| `.orc2/bin/orc2-ticket-check`         | tracker-neutral, fail-closed ticket readiness gate                |
 | `.claude/skills/run-issue`          | entry point: one issue, then stop                                 |
 | `.claude/skills/run-prd`            | entry point: one PRD, then stop at the human checkpoint           |
 | `.codex/prompts/run-{issue,prd}.md` | the same two entry points, when the orchestrator runs on Codex    |
 | `docs/agents/*.md`                  | tracker, triage, domain, flow, and code-standards conventions      |
+| `docs/INBOX.md`                    | tracker-neutral queue of unanswered human questions; never overwritten |
 | `<skills-dir>/{code-review,diagnosing-bugs,tdd,research,…}` | Matt Pocock's engineering skills, vendored at a pinned commit |
 | `AGENTS.md`                         | an `## Agent skills` block between markers, so the skills find their config |
 | `CLAUDE.md`                         | a single line, `@AGENTS.md`, importing the above                            |
-| `<decisions-dir>/LOG.md`            | the decider's audit trail index                                   |
-| `<decisions-dir>/001-database-engine.md` | the engine choice, seeded as a real record (when a DB is used) |
 
-Nothing is written outside those paths. The only existing files `orc2` ever edits are `AGENTS.md` and `CLAUDE.md`, and only between its own markers or by appending one import line — everything the human wrote survives a re-render.
+Nothing is written outside those paths. Generated role/docs files are re-rendered; `docs/INBOX.md` is initialised only when absent and never overwritten. Existing legacy ADR/decision files are preserved but are not implementation authority.
 
 **The agent file stays a pointer, not a rulebook.** It loads into every session and every subagent, so anything inlined there is paid for by roles that cannot use it. Coding standards live in `docs/agents/code-standards.md` and are **routed**: read by `implementer`, `fixer`, and `reviewer`, and by none of `explorer`, `qa`, `decider` — which never write product code. The test asserts both halves of that, so a future edit cannot quietly broadcast it again.
 
@@ -50,7 +50,7 @@ orc2 is the **unattended half**. The interactive half — idea → grilled → s
 
 `/plan-app` is rendered by orc2 and is the front door: the app-wide grilling agenda (stack, domain vocabulary, trust boundaries, operations) plus the decomposition into PRD areas that reaches **release, not feature-complete** — Foundation → Identity → Core domain → Data → Interface → Integrations → Observability → Security hardening → Release & operations. Security appears twice on purpose: as acceptance criteria on every PRD, and as one PRD owning what no feature owns.
 
-Below the seam, each role drives a skill: `implementer` → `/implement` + `/tdd`; `reviewer` → the two axes of `/code-review`; `fixer` and `qa` → `/diagnosing-bugs` on anything broken; `decider` → `/research`; the orchestrator → `/resolving-merge-conflicts`. They are vendored at a commit recorded in `ORC2_SKILLS_PIN`, and `orc2 doctor` reports when upstream moves. The generated `docs/agents/flow.md` is the full map.
+Below the seam, each role drives a skill: `implementer` → `/implement` + `/tdd`; `reviewer` → the two axes of `/code-review`; `fixer` and `qa` → `/diagnosing-bugs` on anything broken; the orchestrator → `/resolving-merge-conflicts`. The compatible `decider` role is a read-only decision advisor: it prepares a human question and never writes a record. Skills are pinned by `ORC2_SKILLS_PIN`; `orc2 doctor` reports drift.
 
 Two things `orc2` handles that a plain copy would get wrong:
 
@@ -65,7 +65,7 @@ Two things `orc2` handles that a plain copy would get wrong:
 | `reviewer`    | ✓     | ✗      | judges it against acceptance criteria; **no tools that could fix** |
 | `fixer`       | ✓     | ✓      | applies findings; cannot approve its own work                      |
 | `qa`          | ✓     | ✓      | exercises a whole PRD end to end, once every issue has passed      |
-| `decider`     | ✓     | records | decides blockers on the human's behalf, with a reversible record  |
+| `decider`     | ✓     | ✗      | prepares plain-language human questions; never decides             |
 | `explorer`    | ✓     | ✗      | one bounded lookup, cheap; for everyone except the reviewer        |
 
 The separation is the point. The reviewer physically cannot fix, so "fix" can never quietly mean "delete the failing test." The fixer cannot approve, so nothing self-certifies. The orchestrator runs the gate itself, so no agent's claim about tests is ever load-bearing.
@@ -73,13 +73,13 @@ The separation is the point. The reviewer physically cannot fix, so "fix" can ne
 ## What the interview decides
 
 - **Tracker** — `scratch` (markdown issues in-repo, no remote) or `github` (issues + labels + `gh`)
-- **Design contract** — `figma` (pixel-exact, MCP extraction), `lofi` (mocks are intent; gaps are triaged to the decider), or `none`
+- **Design contract** — `figma` (pixel-exact, MCP extraction), `lofi` (mocks are intent; material gaps enter `docs/INBOX.md`), or `none`
 - **Runner** — `claude` (native subagents) or `codex` (headless dispatch through the bridge)
 - **Mechanical backend** — run implementer/fixer/explorer on the same CLI, or offload them to `pi` or `codex` on cheaper models
 - **Models** — one per tier: build, judge, PRD-gate, scan
 - **The gate** — the commands the orchestrator runs itself, in order, as the only ground truth
 - **Concurrency** — 1 lane, or 2 paired by change surface
-- **Database** — `none`, `sqlite` (a file per lane; isolation is a path), or `postgres` (a database per lane, created and dropped around the run). Each engine renders its own isolation procedure and its own delete/drop guard, and the choice is seeded as decision record `001` so agents read it as a reversible decision rather than re-deciding it mid-issue.
+- **Database** — `none`, `sqlite` (a file per lane; isolation is a path), or `postgres` (a database per lane, created and dropped around the run). The saved config is the factual authority; no duplicate decision record is generated.
 - **Generated artifacts and migrations** — whether a merge leaves stale output that must be regenerated before gating
 - **Notification** — Slack webhook, push, or terminal-only, once per run at the checkpoint
 - **Policy** — round cap, accessibility target, PRD build order
@@ -118,6 +118,8 @@ Two rules keep the copies honest:
 
 **Capture the design reference once, before QA.** Design-tool APIs are rate-limited per account. A loop that fetches per round exhausts the budget and reports "unverified" three times.
 
-**No agent picks a dependency or a backend.** A third-party library, an engine, a queue, a provider — each goes to the `decider` first, and the reviewer treats a new manifest entry with no record behind it as a blocking finding. The implementer works down a ladder (does it need to exist → already in the codebase → standard library → native platform → already-installed dependency → *only then* ask) and reports rather than reaching. A dependency chosen mid-issue is invisible to review because it compiles, and expensive at exactly the point someone wants it gone.
+**No agent picks a new dependency or backend.** Existing manifest/config is factual authority. A new or replacement dependency, engine, service, provider, or major upgrade must be human-approved under the issue's `## Approved Technical Changes`; otherwise the lane stops with one question in `docs/INBOX.md`. The reviewer blocks an unapproved manifest/config change.
+
+**Upstream planning skills stay untouched.** `docs/agents/grill-with-docs-policy.md` limits ADRs to 200 words/20 lines and requires human approval. `docs/agents/ticket-writing-policy.md` gives `/to-tickets` and `/to-issues` the same tracker-neutral packet and 120-line budget. `AGENTS.md` routes these local modifiers only when the matching skill runs.
 
 **Escalation is success.** A blocked issue surfaced to a human is the pipeline working. A green issue that does not do what it claims is the pipeline failing.

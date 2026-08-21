@@ -33,14 +33,24 @@ Two sections the pipeline reads directly, so they are not optional:
 
 The local gate is what the orchestrator is accountable for, and it runs before the push. CI tells you what a second machine thinks; waiting on CI to find what the gate would have found costs a round every time. A green PR is not a closed issue — merge only after the reviewer returns PASS on top of a green local gate.
 
-## Visual reference on screen-fidelity issues
+## Ticket readiness command
 
-When an issue renders something with a designed appearance, give it a `## Visual reference` section so the implementer has the contract up front rather than guessing.
+Before any implementation role starts:
+
+```bash
+gh issue view "$ISSUE_NUMBER" --json body --jq .body | .orc2/bin/orc2-ticket-check -
+```
+
+For UI fidelity work, insert `--ui` after `orc2-ticket-check`. A non-zero exit means `needs-info`; do not spawn the implementer.
+
+## Visual Reference on screen-fidelity issues
+
+When an issue renders something with a designed appearance, give it a `## Visual Reference` section so the implementer has the contract up front rather than guessing.
 
 A reference is one or more **tagged entries** — source, scope, viewport:
 
 ```
-## Visual reference
+## Visual Reference
 
 - Figma · whole-screen · 1440: [node 1:2639](https://www.figma.com/design/.../?node-id=1-2639&m=dev)
 - Image · component: TrustBadges · 375: `{{REF_DIR}}/trust-badges-375.png`
