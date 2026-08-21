@@ -11,7 +11,7 @@ WORK="$(mktemp -d -t orc2-test.XXXXXX)"
 trap 'rm -rf "$WORK"' EXIT
 fail=0
 
-bash -n "$ORC2_HOME/orc2"          || { echo "FAIL  orc2 has a syntax error"; exit 1; }
+bash -n "$ORC2_HOME/zen"           || { echo "FAIL  zen has a syntax error"; exit 1; }
 if [[ -x "$ORC2_HOME/zen" ]]; then
   bash -n "$ORC2_HOME/zen" || { echo "FAIL  zen has a syntax error"; exit 1; }
 else
@@ -19,6 +19,21 @@ else
 fi
 [[ ! -e "$ORC2_HOME/orc2" ]] \
   || { echo "FAIL  legacy root orc2 executable still present"; fail=1; }
+if "$ORC2_HOME/zen" help 2>&1 | grep -q '^# ZenChain'; then
+  echo "PASS  public product name is ZenChain"
+else
+  echo "FAIL  public product name is not ZenChain"; fail=1
+fi
+if "$ORC2_HOME/zen" help 2>&1 | grep -q 'zen init'; then
+  echo "PASS  public executable examples use zen"
+else
+  echo "FAIL  public executable examples do not use zen"; fail=1
+fi
+if grep -q '^# ZenChain' "$ORC2_HOME/README.md" && grep -q 'zen init' "$ORC2_HOME/README.md"; then
+  echo "PASS  README uses ZenChain and zen"
+else
+  echo "FAIL  README still uses the old public name"; fail=1
+fi
 bash -n "$ORC2_HOME/bin/orc2-agent" || { echo "FAIL  orc2-agent has a syntax error"; exit 1; }
 bash -n "$ORC2_HOME/bin/orc2-ticket-check" || { echo "FAIL  orc2-ticket-check has a syntax error"; exit 1; }
 if [[ -f "$ORC2_HOME/bin/orc2-anti-slop-check" ]]; then
@@ -53,7 +68,7 @@ for combo in "${combos[@]}"; do
   env_file="$WORK/$name.env"; : >"$env_file"
   for kv in $vars; do echo "${kv%%=*}=\"${kv#*=}\"" >>"$env_file"; done
 
-  if ! "$ORC2_HOME/orc2" init "$dir" --answers "$env_file" >"$WORK/$name.log" 2>&1; then
+  if ! "$ORC2_HOME/zen" init "$dir" --answers "$env_file" >"$WORK/$name.log" 2>&1; then
     echo "FAIL  $name — init exited non-zero"; sed 's/^/      /' "$WORK/$name.log"; fail=1; continue
   fi
 
@@ -193,7 +208,7 @@ for combo in "${combos[@]}"; do
   # A repo with no tickets must not be told to run the pipeline. That suggestion
   # was the original bug: `orc2 init` printed /run-prd on an empty repo, where
   # nothing had yet decided what to build.
-  ns="$("$ORC2_HOME/orc2" doctor "$dir" 2>&1 || true)"
+  ns="$("$ORC2_HOME/zen" doctor "$dir" 2>&1 || true)"
   if grep -q 'nothing for the pipeline to run yet' <<<"$ns"; then
     grep -q 'plan-app' <<<"$ns" \
       || { echo "FAIL  $name — empty repo not pointed at plan-app"; fail=1; }
@@ -326,7 +341,7 @@ for combo in "${combos[@]}"; do
 
   # Re-rendering from the saved config must reproduce the same tree.
   cp -R "$dir" "$dir.first"
-  "$ORC2_HOME/orc2" render "$dir" >/dev/null 2>&1 || { echo "FAIL  $name — render round trip exited non-zero"; fail=1; }
+  "$ORC2_HOME/zen" render "$dir" >/dev/null 2>&1 || { echo "FAIL  $name — render round trip exited non-zero"; fail=1; }
   if ! diff -r -x '.git' "$dir.first" "$dir" >/dev/null 2>&1; then
     echo "FAIL  $name — re-render from config.env is not idempotent"; fail=1; continue
   fi
@@ -444,10 +459,10 @@ fi
 
 # A re-render must preserve live INBOX content byte-for-byte.
 d="$WORK/inbox-preserve"; mkdir -p "$d"; git -C "$d" init -q .
-"$ORC2_HOME/orc2" init "$d" --yes >/dev/null 2>&1
+"$ORC2_HOME/zen" init "$d" --yes >/dev/null 2>&1
 printf '\n## Refund while offline\n- Answer: pending\n' >>"$d/docs/INBOX.md"
 before="$(shasum -a 256 "$d/docs/INBOX.md" | awk '{print $1}')"
-"$ORC2_HOME/orc2" render "$d" >/dev/null 2>&1
+"$ORC2_HOME/zen" render "$d" >/dev/null 2>&1
 after="$(shasum -a 256 "$d/docs/INBOX.md" | awk '{print $1}')"
 [[ "$before" == "$after" ]] && echo "PASS  render preserves docs/INBOX.md" \
   || { echo "FAIL  render overwrote docs/INBOX.md"; fail=1; }
@@ -457,7 +472,7 @@ d="$WORK/legacy-inbox"; mkdir -p "$d/.scratch/decisions"; git -C "$d" init -q .
 printf '# Decision inbox\n\n### Legacy question\n- **Answer:** pending\n' >"$d/.scratch/decisions/INBOX.md"
 printf 'ORC2_PROJECT="legacy"\nORC2_TRACKER="scratch"\n' >"$d/.orc2-config.env"
 mkdir -p "$d/.orc2"; cp "$d/.orc2-config.env" "$d/.orc2/config.env"
-if "$ORC2_HOME/orc2" render "$d" >"$WORK/legacy-inbox.log" 2>&1; then
+if "$ORC2_HOME/zen" render "$d" >"$WORK/legacy-inbox.log" 2>&1; then
   echo "FAIL  pending legacy INBOX did not block render"; fail=1
 elif [[ -e "$d/docs/INBOX.md" || -e "$d/.orc2/ORCHESTRATOR.md" ]]; then
   echo "FAIL  legacy guard wrote files before stopping"; fail=1
@@ -483,7 +498,7 @@ fi
 # It is normally invoked through a symlink on PATH, where `dirname $BASH_SOURCE`
 # is the symlink's directory rather than the kit's. That once sent TPL at a
 # nonexistent templates/ and half-rendered before failing.
-ln -sf "$ORC2_HOME/orc2" "$WORK/orc2-link"
+ln -sf "$ORC2_HOME/zen" "$WORK/orc2-link"
 lnk="$WORK/via-link"; mkdir -p "$lnk"; git -C "$lnk" init -q .
 if "$WORK/orc2-link" init "$lnk" --yes >"$WORK/via-link.log" 2>&1 \
    && [[ -f "$lnk/.claude/agents/reviewer.md" && -f "$lnk/docs/agents/flow.md" ]]; then
@@ -494,7 +509,7 @@ fi
 
 # A kit whose templates cannot be found must refuse to write anything at all,
 # rather than leaving a half-install that looks present.
-cp "$ORC2_HOME/orc2" "$WORK/orphan-orc2"; chmod +x "$WORK/orphan-orc2"
+cp "$ORC2_HOME/zen" "$WORK/orphan-orc2"; chmod +x "$WORK/orphan-orc2"
 orphan="$WORK/orphan"; mkdir -p "$orphan"; git -C "$orphan" init -q .
 if "$WORK/orphan-orc2" init "$orphan" --yes >/dev/null 2>&1; then
   echo "FAIL  a copied (not symlinked) script rendered without its templates"; fail=1
@@ -511,7 +526,7 @@ agentfile_case() { # agentfile_case <name> <setup-fn>
   local nm="$1" setup="$2" d="$WORK/af-$1"
   mkdir -p "$d"; git -C "$d" init -q .
   $setup "$d"
-  "$ORC2_HOME/orc2" init "$d" --yes >"$d.log" 2>&1 || { echo "FAIL  agent-file/$nm — init failed"; fail=1; return; }
+  "$ORC2_HOME/zen" init "$d" --yes >"$d.log" 2>&1 || { echo "FAIL  agent-file/$nm — init failed"; fail=1; return; }
   local n
   n="$( { grep -rc 'orc2:agent-skills:start' "$d"/{CLAUDE.md,AGENTS.md} 2>/dev/null || true; } | awk -F: '{s+=$2} END{print s+0}')"
   if [[ "$n" != 1 ]]; then echo "FAIL  agent-file/$nm — $n blocks, expected exactly 1"; fail=1; return; fi
@@ -533,7 +548,7 @@ grep -q 'Human notes I care about' "$WORK/af-existing-claude/CLAUDE.md" \
   && echo "PASS  agent-file preserves human content" \
   || { echo "FAIL  agent-file — human content in CLAUDE.md was lost"; fail=1; }
 # Re-rendering must not duplicate the import.
-"$ORC2_HOME/orc2" render "$WORK/af-existing-claude" >/dev/null 2>&1 || true
+"$ORC2_HOME/zen" render "$WORK/af-existing-claude" >/dev/null 2>&1 || true
 n="$(grep -c '^@AGENTS\.md$' "$WORK/af-existing-claude/CLAUDE.md" || true)"
 [[ "$n" == 1 ]] && echo "PASS  import is not duplicated on re-render" \
   || { echo "FAIL  agent-file — $n imports after re-render, expected 1"; fail=1; }
@@ -541,7 +556,7 @@ n="$(grep -c '^@AGENTS\.md$' "$WORK/af-existing-claude/CLAUDE.md" || true)"
 grep -v '^@AGENTS\.md$' "$WORK/af-existing-claude/CLAUDE.md" >"$WORK/af.tmp" && mv "$WORK/af.tmp" "$WORK/af-existing-claude/CLAUDE.md"
 # Capture first: doctor exits non-zero by design when it finds a fault, and
 # piping it straight into grep lets pipefail mask the match.
-af_out="$("$ORC2_HOME/orc2" doctor "$WORK/af-existing-claude" 2>&1 || true)"
+af_out="$("$ORC2_HOME/zen" doctor "$WORK/af-existing-claude" 2>&1 || true)"
 if grep -q 'does not import AGENTS.md' <<<"$af_out"; then
   echo "PASS  doctor catches a missing AGENTS.md import"
 else
@@ -556,7 +571,7 @@ fi
 # `\b` is not portable under LC_ALL=C on BSD grep, so use an explicit delimiter class.
 unexported=""
 for v in $(grep -rho '{{[A-Z_0-9]*}}' "$ORC2_HOME/templates/" | tr -d '{}' | sort -u); do
-  grep -qE "ORC2_$v[^A-Z_0-9]" "$ORC2_HOME/orc2" || unexported="$unexported $v"
+  grep -qE "ORC2_$v[^A-Z_0-9]" "$ORC2_HOME/zen" || unexported="$unexported $v"
 done
 [[ -z "$unexported" ]] && echo "PASS  every template variable is exported" \
   || { echo "FAIL  template variables never exported:$unexported"; fail=1; }
@@ -567,7 +582,7 @@ done
 # it, deleting everything from the start marker to EOF. Verified: it did.
 d="$WORK/markers"; mkdir -p "$d"; git -C "$d" init -q .
 printf '# app\n\n<!-- orc2:agent-skills:start -->\nold\n\nHUMAN NOTES\n' >"$d/AGENTS.md"
-"$ORC2_HOME/orc2" init "$d" --yes >/dev/null 2>&1 || true
+"$ORC2_HOME/zen" init "$d" --yes >/dev/null 2>&1 || true
 grep -q 'HUMAN NOTES' "$d/AGENTS.md" \
   && echo "PASS  unbalanced markers do not delete the rest of the file" \
   || { echo "FAIL  DATA LOSS — content after an unpaired start marker was deleted"; fail=1; }
@@ -575,13 +590,13 @@ grep -q 'HUMAN NOTES' "$d/AGENTS.md" \
 # mktemp+mv used to hand the destination mode 0600 and replace symlinks with
 # regular files, silently detaching a dotfiles-managed AGENTS.md.
 d="$WORK/perms"; mkdir -p "$d"; git -C "$d" init -q .
-"$ORC2_HOME/orc2" init "$d" --yes >/dev/null 2>&1
-chmod 644 "$d/AGENTS.md"; "$ORC2_HOME/orc2" render "$d" >/dev/null 2>&1
+"$ORC2_HOME/zen" init "$d" --yes >/dev/null 2>&1
+chmod 644 "$d/AGENTS.md"; "$ORC2_HOME/zen" render "$d" >/dev/null 2>&1
 [[ "$(stat -f '%Lp' "$d/AGENTS.md" 2>/dev/null || stat -c '%a' "$d/AGENTS.md")" == 644 ]] \
   && echo "PASS  re-render preserves file mode" \
   || { echo "FAIL  re-render changed the file mode (mktemp 0600 leak)"; fail=1; }
 mkdir -p "$d/real" && mv "$d/AGENTS.md" "$d/real/" && ln -s real/AGENTS.md "$d/AGENTS.md"
-"$ORC2_HOME/orc2" render "$d" >/dev/null 2>&1
+"$ORC2_HOME/zen" render "$d" >/dev/null 2>&1
 [[ -L "$d/AGENTS.md" ]] \
   && echo "PASS  re-render writes through a symlink" \
   || { echo "FAIL  re-render replaced a symlink with a regular file"; fail=1; }
@@ -589,22 +604,22 @@ mkdir -p "$d/real" && mv "$d/AGENTS.md" "$d/real/" && ln -s real/AGENTS.md "$d/A
 # `render >"$dest"` truncated before running, so a bad enum destroyed the
 # previous good file and left placeholders in everything rendered before it.
 d="$WORK/badenum"; mkdir -p "$d"; git -C "$d" init -q .
-"$ORC2_HOME/orc2" init "$d" --yes >/dev/null 2>&1
+"$ORC2_HOME/zen" init "$d" --yes >/dev/null 2>&1
 before="$(wc -c <"$d/docs/agents/issue-tracker.md")"
 perl -pi -e 's/^ORC2_TRACKER=.*/ORC2_TRACKER="jira"/' "$d/.orc2/config.env"
-"$ORC2_HOME/orc2" render "$d" >/dev/null 2>&1 || true
+"$ORC2_HOME/zen" render "$d" >/dev/null 2>&1 || true
 [[ "$(wc -c <"$d/docs/agents/issue-tracker.md")" == "$before" ]] \
   && echo "PASS  an invalid enum leaves existing files intact" \
   || { echo "FAIL  an invalid enum truncated an existing rendered file"; fail=1; }
 
 # The tarball root is <repo-name>-<sha>; hardcoding "skills-" extracted nothing
 # for any other repo, and the render still reported success.
-grep -q 'ORC2_SKILLS_REPO##\*/' "$ORC2_HOME/orc2" \
+grep -q 'ORC2_SKILLS_REPO##\*/' "$ORC2_HOME/zen" \
   && echo "PASS  tar member path derives from the repo name" \
   || { echo "FAIL  tar member path is hardcoded; a renamed skills repo vendors nothing"; fail=1; }
 
 # A zero-padded menu answer is an invalid octal literal: (( 08 )) aborts.
-grep -q '10#\$ans' "$ORC2_HOME/orc2" \
+grep -q '10#\$ans' "$ORC2_HOME/zen" \
   && echo "PASS  menu input is parsed base-ten" \
   || { echo "FAIL  zero-padded input still hits the octal error"; fail=1; }
 
@@ -628,16 +643,16 @@ fi
 # are 1 and the splice still deletes from the start marker to EOF.
 d="$WORK/revmark"; mkdir -p "$d"; git -C "$d" init -q .
 printf '# app\n\n<!-- orc2:agent-skills:end -->\n\n<!-- orc2:agent-skills:start -->\n\nNOTES AFTER START\n' >"$d/AGENTS.md"
-"$ORC2_HOME/orc2" init "$d" --yes >/dev/null 2>&1 || true
+"$ORC2_HOME/zen" init "$d" --yes >/dev/null 2>&1 || true
 grep -q 'NOTES AFTER START' "$d/AGENTS.md" \
   && echo "PASS  reversed markers do not delete the tail" \
   || { echo "FAIL  DATA LOSS — end-above-start still deletes to EOF"; fail=1; }
 
 # A write that cannot happen must fail loudly, not print "wrote" and exit 0.
 d="$WORK/rodir"; mkdir -p "$d"; git -C "$d" init -q .
-"$ORC2_HOME/orc2" init "$d" --yes >/dev/null 2>&1
+"$ORC2_HOME/zen" init "$d" --yes >/dev/null 2>&1
 chmod 555 "$d"
-if "$ORC2_HOME/orc2" render "$d" >"$d.log" 2>&1; then
+if "$ORC2_HOME/zen" render "$d" >"$d.log" 2>&1; then
   echo "FAIL  render reported success into an unwritable directory"; fail=1
 else
   echo "PASS  an unwritable destination fails loudly"
@@ -647,7 +662,7 @@ chmod 755 "$d"
 # Derived prose must not land in the hand-edited config, where derive() silently
 # overwrites it on the next run.
 d="$WORK/derived"; mkdir -p "$d"; git -C "$d" init -q .
-"$ORC2_HOME/orc2" init "$d" --yes >/dev/null 2>&1
+"$ORC2_HOME/zen" init "$d" --yes >/dev/null 2>&1
 if grep -qE 'ORC2_(SKILL_HOW|EXPLORER_HOW|SKILLS_DIR|DB_RECORD_LINE)=' "$d/.orc2/config.env"; then
   echo "FAIL  derived variables leaked into config.env"; fail=1
 else
@@ -660,7 +675,7 @@ fi
 # Assert the atomic form is present, rather than trying to prove the truncating
 # form is absent: `cat "$src" >"$dest"` is quoted in write_preserving's own
 # comment explaining why it was rejected, so matching on it flags correct code.
-if grep -q 'if ! mv "\$src" "\$real"' "$ORC2_HOME/orc2"; then
+if grep -q 'if ! mv "\$src" "\$real"' "$ORC2_HOME/zen"; then
   echo "PASS  writes are atomic renames"
 else
   echo "FAIL  write_preserving no longer uses an atomic rename"; fail=1
@@ -672,7 +687,7 @@ fi
 # only captured when the destination already existed, so a first render shipped
 # the entire kit as -rw-------.
 d="$WORK/modes"; mkdir -p "$d"; git -C "$d" init -q .
-"$ORC2_HOME/orc2" init "$d" --yes >/dev/null 2>&1
+"$ORC2_HOME/zen" init "$d" --yes >/dev/null 2>&1
 want="$(printf '%o' "$(( 0666 & ~0$(umask) ))")"
 badmode=""
 for f in .orc2/ORCHESTRATOR.md .claude/agents/reviewer.md docs/agents/flow.md AGENTS.md; do
@@ -687,7 +702,7 @@ done
 # while the splice still deletes to EOF.
 d="$WORK/sameline"; mkdir -p "$d"; git -C "$d" init -q .
 printf '# app\n\nInline orc2:agent-skills:start and orc2:agent-skills:end mention.\n\nTAIL NOTES\n' >"$d/AGENTS.md"
-"$ORC2_HOME/orc2" init "$d" --yes >/dev/null 2>&1 || true
+"$ORC2_HOME/zen" init "$d" --yes >/dev/null 2>&1 || true
 grep -q 'TAIL NOTES' "$d/AGENTS.md" \
   && echo "PASS  same-line markers do not delete the tail" \
   || { echo "FAIL  DATA LOSS — markers on one line still delete to EOF"; fail=1; }
@@ -695,9 +710,9 @@ grep -q 'TAIL NOTES' "$d/AGENTS.md" \
 # mv into a directory succeeds by moving the file inside it: wrong place, and it
 # used to report success.
 d="$WORK/dirdest"; mkdir -p "$d"; git -C "$d" init -q .
-"$ORC2_HOME/orc2" init "$d" --yes >/dev/null 2>&1
+"$ORC2_HOME/zen" init "$d" --yes >/dev/null 2>&1
 rm -f "$d/AGENTS.md"; mkdir "$d/AGENTS.md"
-if "$ORC2_HOME/orc2" render "$d" >/dev/null 2>&1; then
+if "$ORC2_HOME/zen" render "$d" >/dev/null 2>&1; then
   echo "FAIL  render reported success with a directory as the destination"; fail=1
 else
   echo "PASS  a directory destination fails loudly"
@@ -708,7 +723,7 @@ fi
 # backend's default — silently, since nothing in the output says what it used.
 d="$WORK/effort"; mkdir -p "$d"; git -C "$d" init -q .
 printf 'ORC2_RUNNER="claude"\nORC2_RUNNER_MECH="pi"\nORC2_MODEL_BUILD="stub/model"\n' >"$d/e.env"
-"$ORC2_HOME/orc2" init "$d" --answers "$d/e.env" >/dev/null 2>&1
+"$ORC2_HOME/zen" init "$d" --answers "$d/e.env" >/dev/null 2>&1
 for role in implementer fixer; do
   rf="$d/.orc2/agents/$role.md"; [[ -f "$rf" ]] || rf="$d/.claude/agents/$role.md"
   grep -q '^effort: medium$' "$rf" \
@@ -731,7 +746,7 @@ grep -q 'model_reasoning_effort="medium"' <<<"$argv_cx" || bad="$bad codex"
 # skill fails silently, which reads as "the step did not apply".
 empty="$WORK/no-global-skills"; mkdir -p "$empty"
 d="$WORK/frontend"; mkdir -p "$d"; git -C "$d" init -q .
-ORC2_UPSTREAM_SKILLS="$empty" "$ORC2_HOME/orc2" init "$d" --yes >/dev/null 2>&1
+ORC2_UPSTREAM_SKILLS="$empty" "$ORC2_HOME/zen" init "$d" --yes >/dev/null 2>&1
 sk="$d/.claude/skills"
 fe_bad=""
 for s in grill-with-docs grilling to-spec to-tickets triage wayfinder handoff; do
@@ -765,7 +780,7 @@ printf -- '---\nname: grill-with-docs\ndisable-model-invocation: true\n---\nupst
 printf -- '---\nname: to-tickets\ndisable-model-invocation: true\n---\nupstream tickets\n' >"$fakeglobal/to-tickets/SKILL.md"
 grill_before="$(shasum -a 256 "$fakeglobal/grill-with-docs/SKILL.md" | awk '{print $1}')"
 tickets_before="$(shasum -a 256 "$fakeglobal/to-tickets/SKILL.md" | awk '{print $1}')"
-ORC2_UPSTREAM_SKILLS="$fakeglobal" "$ORC2_HOME/orc2" init "$d2" --yes >/dev/null 2>&1
+ORC2_UPSTREAM_SKILLS="$fakeglobal" "$ORC2_HOME/zen" init "$d2" --yes >/dev/null 2>&1
 [[ -d "$d2/.claude/skills/triage" ]] \
   && { echo "FAIL  a globally-installed skill was vendored locally anyway"; fail=1; } \
   || echo "PASS  globally-installed skills are not duplicated locally"
@@ -786,7 +801,7 @@ grep -q 'orc2 skills' "$d/.claude/skills/plan-app/SKILL.md" \
 # unreachable name because an IFS set for the gate loop leaked into the skills
 # loop — a green-looking pass that checked nothing.
 d="$WORK/defaults"
-if out="$("$ORC2_HOME/orc2" doctor "$d" 2>&1)"; then :; fi
+if out="$("$ORC2_HOME/zen" doctor "$d" 2>&1)"; then :; fi
 grep -q 'cited skills reachable and agent-invocable' <<<"$out" \
   && echo "PASS  doctor verifies each skill individually" \
   || { echo "FAIL  doctor did not verify the skills (IFS leak?)"; echo "$out" | grep -i skill | sed 's/^/      /'; fail=1; }
