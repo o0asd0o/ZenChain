@@ -1,15 +1,15 @@
-# orc2 — a portable six-agent implementation pipeline
+# ZenChain — a portable six-agent implementation pipeline
 
 Installs an unattended implement→review→fix→QA pipeline into any git repository. Extracted from a project that ran it for nine PRDs; every rule in the templates is there because breaking it cost a real round.
 
 ```bash
-ln -sf ~/orc2/orc2 ~/.local/bin/orc2   # once — symlink, do not copy
+ln -sf ~/zen/zen ~/.local/bin/zen      # once — symlink, do not copy
 cd ~/code/my-project                   # then, from inside any project folder:
-orc2 init                              # interview, then render
-orc2 doctor                            # check the install and its backends
+zen init                               # interview, then render
+zen doctor                             # check the install and its backends
 ```
 
-`orc2 init` with no argument targets the current directory. On a fresh repo it will **not** tell you to run the pipeline — there is nothing to run. It points at `/plan-app` → `/grill-with-docs` → `/to-spec` → `/to-tickets` first, and `orc2 doctor` re-reads the repo's state every time to print the step you are actually on. **Symlink it, never copy it** — the script resolves its own location back through the link to find `templates/`, and a copy has no way to reach them. It refuses to write anything at all rather than half-render if it cannot.
+`zen init` with no argument targets the current directory. On a fresh repo it will **not** tell you to run the pipeline — there is nothing to run. It points at `/plan-app` → `/grill-with-docs` → `/to-spec` → `/to-tickets` first, and `zen doctor` re-reads the repo's state every time to print the step you are actually on. **Symlink it, never copy it** — the script resolves its own location back through the link to find `templates/`, and a copy has no way to reach them. It refuses to write anything at all rather than half-render if it cannot.
 
 ## What gets installed
 
@@ -35,27 +35,27 @@ Nothing is written outside those paths. Generated role/docs files are re-rendere
 
 **The agent file stays a pointer, not a rulebook.** It loads into every session and every subagent, so anything inlined there is paid for by roles that cannot use it. Coding standards live in `docs/agents/code-standards.md` and are **routed**: read by `implementer`, `fixer`, and `reviewer`, and by none of `explorer`, `qa`, `decider` — which never write product code. The test asserts both halves of that, so a future edit cannot quietly broadcast it again.
 
-**Why two files.** `AGENTS.md` is the cross-tool convention and holds the block; `CLAUDE.md` is the file Claude Code is documented to load, and gets `@AGENTS.md`. Relying on `AGENTS.md` alone under `runner=claude` risks a perfectly good config the model never sees, so `orc2 doctor` **fails** when the import is missing, and fails again if both files end up carrying the block. A repo where an earlier version wrote the block straight into `CLAUDE.md` is migrated on the next render. Set `ORC2_AGENTS_FILE` to put the block somewhere else verbatim, with no import wiring.
+**Why two files.** `AGENTS.md` is the cross-tool convention and holds the block; `CLAUDE.md` is the file Claude Code is documented to load, and gets `@AGENTS.md`. Relying on `AGENTS.md` alone under `runner=claude` risks a perfectly good config the model never sees, so `zen doctor` **fails** when the import is missing, and fails again if both files end up carrying the block. A repo where an earlier version wrote the block straight into `CLAUDE.md` is migrated on the next render. Set `ORC2_AGENTS_FILE` to put the block somewhere else verbatim, with no import wiring.
 
 ## Where this sits in a longer flow
 
-orc2 is the **unattended half**. The interactive half — idea → grilled → spec → tickets — belongs to [Matt Pocock's engineering skills](https://github.com/mattpocock/skills), and orc2 does not automate it: most of those skills are user-only by design, because they exist to interview a human.
+ZenChain is the **unattended half**. The interactive half — idea → grilled → spec → tickets — belongs to [Matt Pocock's engineering skills](https://github.com/mattpocock/skills), and ZenChain does not automate it: most of those skills are user-only by design, because they exist to interview a human.
 
 ```
-  /plan-app ──→ /grill-with-docs ──→ /to-spec ──→ /to-tickets ═══╬══>  /run-prd  (orc2)
+  /plan-app ──→ /grill-with-docs ──→ /to-spec ──→ /to-tickets ═══╬══>  /run-prd  (ZenChain)
    (agenda +     (one app-wide       (one per     (per PRD)      ║
     PRD areas)    session)            area)                      ║
   /research /prototype /wayfinder /triage ───────────────────────┘
                                              the seam: agent-ready tickets exist
 ```
 
-`/plan-app` is rendered by orc2 and is the front door: the app-wide grilling agenda (stack, domain vocabulary, trust boundaries, operations) plus the decomposition into PRD areas that reaches **release, not feature-complete** — Foundation → Identity → Core domain → Data → Interface → Integrations → Observability → Security hardening → Release & operations. Security appears twice on purpose: as acceptance criteria on every PRD, and as one PRD owning what no feature owns.
+`/plan-app` is rendered by ZenChain and is the front door: the app-wide grilling agenda (stack, domain vocabulary, trust boundaries, operations) plus the decomposition into PRD areas that reaches **release, not feature-complete** — Foundation → Identity → Core domain → Data → Interface → Integrations → Observability → Security hardening → Release & operations. Security appears twice on purpose: as acceptance criteria on every PRD, and as one PRD owning what no feature owns.
 
-Below the seam, each role drives a skill: `implementer` → `/implement` + `/tdd`; `reviewer` → the two axes of `/code-review`; `fixer` and `qa` → `/diagnosing-bugs` on anything broken; the orchestrator → `/resolving-merge-conflicts`. The compatible `decider` role is a read-only decision advisor: it prepares a human question and never writes a record. Skills are pinned by `ORC2_SKILLS_PIN`; `orc2 doctor` reports drift.
+Below the seam, each role drives a skill: `implementer` → `/implement` + `/tdd`; `reviewer` → the two axes of `/code-review`; `fixer` and `qa` → `/diagnosing-bugs` on anything broken; the orchestrator → `/resolving-merge-conflicts`. The compatible `decider` role is a read-only decision advisor: it prepares a human question and never writes a record. Skills are pinned by `ORC2_SKILLS_PIN`; `zen doctor` reports drift.
 
 Two things `orc2` handles that a plain copy would get wrong:
 
-- **User-only skills cannot be invoked by an agent.** Upstream ships `/implement` with `disable-model-invocation: true`, so a role prompt citing it dangles. orc2 strips the flag on the way in and records in the file that it did. `orc2 doctor` fails if any cited skill is still user-only.
+- **User-only skills cannot be invoked by an agent.** Upstream ships `/implement` with `disable-model-invocation: true`, so a role prompt citing it dangles. ZenChain strips the flag on the way in and records in the file that it did. `zen doctor` fails if any cited skill is still user-only.
 - **`/implement` closes out by running `/code-review`, which would be self-approval.** orc2's reviewer is a separate agent with no write tools — that is what stops "fix" meaning "delete the failing test". So the implementer runs `/code-review` as a **pre-flight self-check whose output is never a verdict**, and only the reviewer returns PASS.
 
 ## The six roles
@@ -86,31 +86,31 @@ The separation is the point. The reviewer physically cannot fix, so "fix" can ne
 - **Notification** — Slack webhook, push, or terminal-only, once per run at the checkpoint
 - **Policy** — round cap, accessibility target, PRD build order
 
-Answers land in `.orc2/config.env`. Change any of them there and run `orc2 render` — no re-interview.
+Answers land in `.orc2/config.env`. Change any of them there and run `zen render` — no re-interview.
 
-Non-interactive: `orc2 init --answers my-answers.env`, or `orc2 init --yes` for defaults. See `answers.example.env`.
+Non-interactive: `zen init --answers my-answers.env`, or `zen init --yes` for defaults. See `answers.example.env`.
 
 ## Prerequisites
 
-**None.** `orc2 init` fetches every skill it names, at a pinned commit, so a fresh machine with nothing installed is fully working — including the planning half (`/grill-with-docs`, `/to-spec`, `/to-tickets`, `/triage`, `/wayfinder`) that `plan-app` tells you to run.
+**None.** `zen init` fetches every skill it names, at a pinned commit, so a fresh machine with nothing installed is fully working — including the planning half (`/grill-with-docs`, `/to-spec`, `/to-tickets`, `/triage`, `/wayfinder`) that `plan-app` tells you to run.
 
 ```
-orc2 skills            # where each skill lives: a project path, global, or missing
-orc2 skills --global   # install them into ~/.claude/skills, for every project
+zen skills             # where each skill lives: a project path, global, or missing
+zen skills --global    # install them into ~/.claude/skills, for every project
 ```
 
 Two rules keep the copies honest:
 
 - **A skill already in `~/.claude/skills` is never vendored locally.** A local copy would shadow yours and then go stale against it. Install globally and re-render, and orc2 *removes* the per-project copies it no longer needs.
-- **The planning skills stay user-only.** They exist to interview a person, so an agent must not invoke them — that is how a pipeline ends up inventing the requirements it is meant to build against. Only the skills a role actually drives get their `disable-model-invocation` flag stripped, and `orc2 doctor` fails if a cited one is still user-only.
+- **The planning skills stay user-only.** They exist to interview a person, so an agent must not invoke them — that is how a pipeline ends up inventing the requirements it is meant to build against. Only the skills a role actually drives get their `disable-model-invocation` flag stripped, and `zen doctor` fails if a cited one is still user-only.
 
-`orc2 init --vendor-skills` copies from `~/.claude/skills` instead of fetching, for an offline setup.
+`zen init --vendor-skills` copies from `~/.claude/skills` instead of fetching, for an offline setup.
 
 ## Design notes worth knowing before you change anything
 
 **The gate is run by the orchestrator, never by an agent.** Agent reports are claims. This is the single rule the whole thing rests on.
 
-**Anti-slop is enforced by default for TypeScript and JavaScript.** orc2 does not silently install project dependencies. Its preflight requires the project-vendored [dmmulroy/anti-slop](https://github.com/dmmulroy/anti-slop) plugin, every generic rule enabled as an error, direct `oxlint` and `@oxlint/plugins` dependencies, and a lint command in `ORC2_GATE`. A direct `effect` dependency also requires the opt-in Effect rule group. Repositories without `package.json` are unaffected; set `ORC2_ANTI_SLOP=off` for a different local policy.
+**Anti-slop is enforced by default for TypeScript and JavaScript.** ZenChain does not silently install project dependencies. Its preflight requires the project-vendored [dmmulroy/anti-slop](https://github.com/dmmulroy/anti-slop) plugin, every generic rule enabled as an error, direct `oxlint` and `@oxlint/plugins` dependencies, and a lint command in `ORC2_GATE`. A direct `effect` dependency also requires the opt-in Effect rule group. Repositories without `package.json` are unaffected; set `ORC2_ANTI_SLOP=off` for a different local policy.
 
 **An empty agent report is a dead dispatch, not an empty result.** A backend out of credit exits zero with empty stdout, which reads as "clean run, nothing to do." The bridge exits 3 on empty output to make that loud — it once looked like a seventeen-minute hang and was a dead process.
 

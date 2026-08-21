@@ -23,19 +23,19 @@ This skill is the checklist for that session. It is user-only on purpose: an age
 Every `/name` this file tells you to run is a real skill that has to be installed. Check first, because the failure mode is silent: an uninstalled skill just does nothing, and it is easy to read that as "the step did not apply."
 
 ```
-orc2 skills
+zen skills
 ```
 
 That prints where each one lives — `global`, a path inside this project, or `missing`. If anything reads `missing`:
 
 ```
-orc2 skills --global      # installs into ~/.claude/skills, for every project
-orc2 render               # then drops the per-project copies that are now redundant
+zen skills --global       # installs into ~/.claude/skills, for every project
+zen render                # then drops the per-project copies that are now redundant
 ```
 
-`orc2 init` already vendored a project-local copy of any planning skill you did not have, so in most cases they are present before you read this. `--global` is the better home if you plan to use them on more than one project — it also stops each project carrying a copy that quietly goes stale.
+`zen init` already vendored a project-local copy of any planning skill you did not have, so in most cases they are present before you read this. `--global` is the better home if you plan to use them on more than one project — it also stops each project carrying a copy that quietly goes stale.
 
-**Names differ between installs.** This file says `/to-spec` and `/to-tickets`; yours may be `/to-prd` and `/to-issues`. `orc2 skills` lists what you actually have — go by that, not by the names here.
+**Names differ between installs.** This file says `/to-spec` and `/to-tickets`; yours may be `/to-prd` and `/to-issues`. `zen skills` lists what you actually have — go by that, not by the names here.
 
 ## Step 1 — Grill the app-wide question
 
@@ -112,7 +112,7 @@ Once the entities are named, both follow-ups go out together:
 
 Both together; neither depends on the other.
 
-- The design contract — a pixel-exact file, lo-fi mocks, or nothing? `orc2 init` recorded this too, so confirm rather than ask.
+- The design contract — a pixel-exact file, lo-fi mocks, or nothing? `zen init` recorded this too, so confirm rather than ask.
 - Viewport widths that must work, and the accessibility target. The pipeline treats accessibility as outranking the visual reference, so state it explicitly.
 
 #### Batch F — trust and data
@@ -191,7 +191,7 @@ Per PRD, run `/to-tickets` or `/to-issues` after reading `docs/agents/ticket-wri
 - `## Approved Technical Changes` — exact material additions, or `None`
 - `## Visual Reference` on screen work, with a tagged source
 
-Then record the area order as `ORC2_BUILD_ORDER` in `.orc2/config.env` and run `orc2 render`, so the orchestrator and the entry-point skills all state the same order.
+Then record the area order as `ORC2_BUILD_ORDER` in `.orc2/config.env` and run `zen render`, so the orchestrator and the entry-point skills all state the same order.
 
 Only now does `/run-prd <area>` mean anything. Run the first area, stop at its human checkpoint, and look at what came out before starting the second — the first PRD through a new pipeline is also a test of the plan.
 

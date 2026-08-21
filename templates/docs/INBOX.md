@@ -1,6 +1,6 @@
 # Human decision inbox
 
-Open, unanswered questions only. The orchestrator owns this tracker-neutral queue; `orc2 render` never overwrites it. After the human answers, update the owning issue, PRD, or approved ADR, then remove the entry. Git keeps the history.
+Open, unanswered questions only. The orchestrator owns this tracker-neutral queue; `zen render` never overwrites it. After the human answers, update the owning issue, PRD, or approved ADR, then remove the entry. Git keeps the history.
 
 <!--
 ## <plain title>

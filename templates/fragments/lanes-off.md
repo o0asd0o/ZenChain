@@ -14,4 +14,4 @@ The worktree matters even without parallelism: it keeps a failed or abandoned is
 
 **Tools may not be on `PATH` in a non-interactive shell.** Whatever `PATH` export your toolchain needs, put it in every agent brief — agents hit `command not found` otherwise, and report it as a code error.
 
-If you later want two lanes, re-run `orc2 render` after setting `ORC2_LANES="2"` in `.orc2/config.env`. The parallel section carries rules that do not apply serially and are dangerous to improvise.
+If you later want two lanes, re-run `zen render` after setting `ORC2_LANES="2"` in `.orc2/config.env`. The parallel section carries rules that do not apply serially and are dangerous to improvise.

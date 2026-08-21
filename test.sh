@@ -3,9 +3,9 @@
 # no missing fragment, and no unresolved include. Run after editing anything
 # under templates/.
 #
-#   ~/orc2/test.sh
+#   ~/zen/test.sh
 set -euo pipefail
-export LC_ALL=C   # same reason as in `orc2`: ASCII patterns over UTF-8 files
+export LC_ALL=C   # same reason as in `zen`: ASCII patterns over UTF-8 files
 ORC2_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK="$(mktemp -d -t orc2-test.XXXXXX)"
 trap 'rm -rf "$WORK"' EXIT
@@ -19,7 +19,7 @@ else
 fi
 [[ ! -e "$ORC2_HOME/orc2" ]] \
   || { echo "FAIL  legacy root orc2 executable still present"; fail=1; }
-if "$ORC2_HOME/zen" help 2>&1 | grep -q '^# ZenChain'; then
+if "$ORC2_HOME/zen" help 2>&1 | grep -q '^ZenChain'; then
   echo "PASS  public product name is ZenChain"
 else
   echo "FAIL  public product name is not ZenChain"; fail=1

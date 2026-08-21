@@ -8,4 +8,4 @@ The gate runs the project-vendored anti-slop Oxlint plugin. Its diagnostics are 
 - Prefer `satisfies`, `as const`, and named contracts. A necessary non-const assertion requires a specific `SAFETY:` comment naming the checked invariant.
 - Apply the Effect rule group only when `effect` is a direct project dependency.
 
-Installation is project-owned at `tools/oxlint/anti-slop/`. A Foundation ticket must list `oxlint`, `@oxlint/plugins`, and the vendored plugin under `## Approved Technical Changes`; neither an implementation agent nor `orc2 render` may add them silently.
+Installation is project-owned at `tools/oxlint/anti-slop/`. A Foundation ticket must list `oxlint`, `@oxlint/plugins`, and the vendored plugin under `## Approved Technical Changes`; neither an implementation agent nor `zen render` may add them silently.

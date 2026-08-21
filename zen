@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# orc2 — install the six-agent implementation pipeline into a project.
+# ZenChain — install the six-agent implementation pipeline into a project.
 #
-#   orc2 init [target-dir]      interactive setup, then render
-#   orc2 render [target-dir]    re-render from .orc2/config.env (after editing it)
-#   orc2 doctor [target-dir]    check the install and its backends
-#   orc2 skills [--global]      show where each skill lives; --global installs the
+#   zen init [target-dir]       interactive setup, then render
+#   zen render [target-dir]     re-render from .orc2/config.env (after editing it)
+#   zen doctor [target-dir]     check the install and its backends
+#   zen skills [--global]       show where each skill lives; --global installs the
 #                               planning set into ~/.claude/skills, for every project
 #
 # Flags: --answers FILE   load answers, skip the interview
@@ -12,7 +12,7 @@
 #        --vendor-skills  copy skills from ~/.claude/skills instead of fetching upstream
 #
 # Everything the interview asks becomes a variable in <target>/.orc2/config.env.
-# Edit that file and `orc2 render` to change the generated pipeline later.
+# Edit that file and `zen render` to change the generated pipeline later.
 set -euo pipefail
 
 # Byte-wise locale. Every pattern in this script is ASCII, while the templates
@@ -22,7 +22,7 @@ set -euo pipefail
 export LC_ALL=C
 
 # Resolve through symlinks. This script is normally reached via a symlink on
-# PATH (~/.local/bin/orc2), and `dirname "$BASH_SOURCE"` gives the symlink's
+# PATH (~/.local/bin/zen), and `dirname "$BASH_SOURCE"` gives the symlink's
 # directory, not the kit's — which sends TPL at a templates/ that does not exist
 # and half-renders before failing. `readlink -f` is not portable far enough back
 # on macOS, so walk the links.
@@ -40,9 +40,9 @@ TPL="$ORC2_HOME/templates"
 # render is worse than no render: it leaves an install that looks present and
 # is missing its roles.
 [[ -f "$TPL/ORCHESTRATOR.md" ]] || {
-  echo "orc2: cannot find templates at $TPL (resolved kit dir: $ORC2_HOME)." >&2
-  echo "orc2: the kit moved, or this copy was copied instead of symlinked. Re-link it:" >&2
-  echo "orc2:   ln -sf /path/to/orc2/orc2 ~/.local/bin/orc2" >&2
+  echo "zen: cannot find templates at $TPL (resolved kit dir: $ORC2_HOME)." >&2
+  echo "zen: the kit moved, or this copy was copied instead of symlinked. Re-link it:" >&2
+  echo "zen:   ln -sf /path/to/zen/zen ~/.local/bin/zen" >&2
   exit 2
 }
 UPSTREAM_SKILLS="${ORC2_UPSTREAM_SKILLS:-$HOME/.claude/skills}"
@@ -55,11 +55,11 @@ while [[ $# -gt 0 ]]; do
     --yes|-y)  ASSUME_YES=1; shift ;;
     --vendor-skills) VENDOR=1; shift ;;
     --global)  SKILLS_ARG="--global"; shift ;;
-    -*) echo "orc2: unknown flag $1" >&2; exit 2 ;;
+    -*) echo "zen: unknown flag $1" >&2; exit 2 ;;
     *)  TARGET="$1"; shift ;;
   esac
 done
-TARGET="$(cd "$TARGET" 2>/dev/null && pwd)" || { echo "orc2: no such directory" >&2; exit 2; }
+TARGET="$(cd "$TARGET" 2>/dev/null && pwd)" || { echo "zen: no such directory" >&2; exit 2; }
 
 say()  { printf '%s\n' "$*"; }
 head2() { printf '\n\033[1m%s\033[0m\n' "$*"; }
@@ -114,8 +114,8 @@ detect_gate() {
 }
 
 interview() {
-  head2 "orc2 — pipeline setup for $(basename "$TARGET")"
-  say "Every answer lands in .orc2/config.env. Edit it and re-run \`orc2 render\` to change your mind."
+  head2 "ZenChain — pipeline setup for $(basename "$TARGET")"
+  say "Every answer lands in .orc2/config.env. Edit it and re-run \`zen render\` to change your mind."
 
   ask ORC2_PROJECT "Project name" "$(basename "$TARGET")"
 
@@ -141,13 +141,13 @@ interview() {
   ask_choice ORC2_RUNNER \
     "Which CLI runs the orchestrator and the judgement roles (reviewer, qa, decider)?" claude \
     "claude — Claude Code; roles are native subagents in .claude/agents/" \
-    "codex  — Codex CLI; roles are dispatched headlessly through the orc2-agent bridge"
+    "codex  — Codex CLI; roles are dispatched headlessly through the ZenChain bridge"
 
   ask_choice ORC2_RUNNER_MECH \
     "Which backend runs the mechanical roles (implementer, fixer, explorer)?" same \
     "same  — the same CLI as above (simplest; one bill, one toolchain)" \
-    "pi    — pi CLI on cheap external models, via the orc2-agent bridge" \
-    "codex — Codex CLI, via the orc2-agent bridge"
+    "pi    — pi CLI on cheap external models, via the ZenChain bridge" \
+    "codex — Codex CLI, via the ZenChain bridge"
   [[ "$ORC2_RUNNER_MECH" == same ]] && ORC2_RUNNER_MECH="$ORC2_RUNNER" && export ORC2_RUNNER_MECH
 
   head2 "Models"
@@ -282,7 +282,7 @@ fetch_skills() { # fetch_skills <dest-dir>
   if [[ -z "$sha" || "$sha" == main ]]; then
     sha="$(resolve_pin main || true)"
     [[ -n "$sha" ]] || { say "  ! cannot reach github to pin ${ORC2_SKILLS_REPO} — skipping skill fetch."
-                         say "    The role prompts cite these skills; install them by hand or re-run \`orc2 render\` online."
+                         say "    The role prompts cite these skills; install them by hand or re-run \`zen render\` online."
                          return 0; }
     say "  pinned ${ORC2_SKILLS_REPO} at ${sha:0:12}"
   fi
@@ -393,9 +393,9 @@ derive() {
   # checks are asserts guarding a future edit to that defaulting, not the primary
   # defence. The overlap check is the one that fires on real input.
   if [[ "$ORC2_DB" != none ]]; then
-    [[ -n "$ORC2_LANE_PREFIX" ]] || { say "orc2: ORC2_LANE_PREFIX is empty with ORC2_DB=$ORC2_DB. That renders a drop guard matching EVERY database. Set it and re-run." >&2; exit 2; }
-    [[ -n "$ORC2_DEV_DB"      ]] || { say "orc2: ORC2_DEV_DB is empty with ORC2_DB=$ORC2_DB. The pipeline cannot name the database it must never touch. Set it and re-run." >&2; exit 2; }
-    [[ "$ORC2_DEV_DB" == "$ORC2_LANE_PREFIX"* ]] && { say "orc2: ORC2_DEV_DB ('$ORC2_DEV_DB') starts with ORC2_LANE_PREFIX ('$ORC2_LANE_PREFIX'), so the development database matches the lane drop guard. Choose a prefix that cannot match it." >&2; exit 2; }
+    [[ -n "$ORC2_LANE_PREFIX" ]] || { say "zen: ORC2_LANE_PREFIX is empty with ORC2_DB=$ORC2_DB. That renders a drop guard matching EVERY database. Set it and re-run." >&2; exit 2; }
+    [[ -n "$ORC2_DEV_DB"      ]] || { say "zen: ORC2_DEV_DB is empty with ORC2_DB=$ORC2_DB. The pipeline cannot name the database it must never touch. Set it and re-run." >&2; exit 2; }
+    [[ "$ORC2_DEV_DB" == "$ORC2_LANE_PREFIX"* ]] && { say "zen: ORC2_DEV_DB ('$ORC2_DEV_DB') starts with ORC2_LANE_PREFIX ('$ORC2_LANE_PREFIX'), so the development database matches the lane drop guard. Choose a prefix that cannot match it." >&2; exit 2; }
   fi
   : "${ORC2_CODEGEN_CMD:=}" "${ORC2_MIGRATE_CMD:=}" "${ORC2_MIGRATE_STATUS_CMD:=}" "${ORC2_GENERATED_PATHS:=}"
   : "${ORC2_SLACK_MENTION:=}" "${ORC2_BUILD_ORDER:=}"
@@ -530,11 +530,11 @@ write_out() { # write_out <template> <dest>
   # A missing template must not cost the human the file that is already there.
   # `render >"$dest"` truncates before it runs, so a bad ORC2_TRACKER value used
   # to leave the previous good file zero-byte and abort the render half-done.
-  [[ -f "$1" ]] || { say "orc2: no template at ${1#$TPL/} — check the enum values in .orc2/config.env" >&2; return 1; }
+  [[ -f "$1" ]] || { say "zen: no template at ${1#$TPL/} — check the enum values in .orc2/config.env" >&2; return 1; }
   mkdir -p "$(dirname "$2")"
   tmp="$(mktemp -t orc2-render.XXXXXX)"
   if ! render "$1" >"$tmp"; then
-    rm -f "$tmp"; say "orc2: render failed for ${1#$TPL/}; left ${2#$TARGET/} untouched" >&2; return 1
+    rm -f "$tmp"; say "zen: render failed for ${1#$TPL/}; left ${2#$TARGET/} untouched" >&2; return 1
   fi
   write_preserving "$2" "$tmp"
   say "  wrote ${2#$TARGET/}"
@@ -557,7 +557,7 @@ write_preserving() { # write_preserving <dest> <src-tmp>
   # diagnostic, where a plain write would have failed instantly with ELOOP.
   while [[ -L "$real" ]]; do
     if (( ++hops > 32 )); then
-      rm -f "$src"; say "orc2: $dest is a symlink loop — left unchanged" >&2; return 1
+      rm -f "$src"; say "zen: $dest is a symlink loop — left unchanged" >&2; return 1
     fi
     local d t; d="$(cd -P "$(dirname "$real")" && pwd)"; t="$(readlink "$real")"
     [[ "$t" != /* ]] && t="$d/$t"; real="$t"
@@ -565,7 +565,7 @@ write_preserving() { # write_preserving <dest> <src-tmp>
   # mv into a directory succeeds by moving the file *inside* it, so the render
   # would land in the wrong place and still report success.
   if [[ -d "$real" ]]; then
-    rm -f "$src"; say "orc2: $real is a directory, not a file — left unchanged" >&2; return 1
+    rm -f "$src"; say "zen: $real is a directory, not a file — left unchanged" >&2; return 1
   fi
   if [[ -e "$real" ]]; then
     mode="$(stat -f '%Lp' "$real" 2>/dev/null || stat -c '%a' "$real" 2>/dev/null || true)"
@@ -576,7 +576,7 @@ write_preserving() { # write_preserving <dest> <src-tmp>
   fi
   if ! mv "$src" "$real"; then
     rm -f "$src"
-    say "orc2: cannot write $real — left unchanged" >&2
+    say "zen: cannot write $real — left unchanged" >&2
     return 1
   fi
   [[ -n "$mode" ]] && chmod "$mode" "$real"
@@ -586,7 +586,7 @@ write_preserving() { # write_preserving <dest> <src-tmp>
 save_config() {
   mkdir -p "$TARGET/.orc2"
   local v
-  { say "# orc2 pipeline config for $ORC2_PROJECT — edit, then run: orc2 render"
+  { say "# ZenChain pipeline config for $ORC2_PROJECT — edit, then run: zen render"
     # printf %q so a value containing spaces, quotes, or arrows survives sourcing.
     for v in $(env | grep '^ORC2_' | grep -vE '^ORC2_(GATE_LIST|GATE_BLOCK|GATE_COUNT|GATE_FIRST|ISSUE_GLOB|ISSUE_ROOT|STATUS_MECH|TICKET_CHECK_CMD|LANES_MODE|LANES_SELECT_SUFFIX|LANES_PRD_CLAUSE|REF_DIR|MENTION_LINE|DELEGATION|BUILD_ORDER_LINE|QA_REF_ARG|DB_RELEASE_CLAUSE|IMPL_PR_CLAUSE|FIGMA_ROOT_CLAUSE|SLACK_MENTION_CLAUSE|SKILL_HOW|EXPLORER_HOW|SKILLS_DIR|SKILLS_MODE|HOME|UPSTREAM_SKILLS|AGENT_MODEL|CODEX_APPROVAL|INCLUDE_DEPTH)=' \
       | cut -d= -f1 | sort); do
@@ -611,8 +611,8 @@ guard_legacy_inbox() {
   for f in "$TARGET/.scratch/decisions/INBOX.md" "$TARGET/docs/decisions/INBOX.md"; do
     [[ -f "$f" ]] || continue
     if legacy_inbox_has_entries "$f"; then
-      say "orc2: legacy INBOX has unresolved entries at ${f#$TARGET/}." >&2
-      say "orc2: resolve or migrate them to docs/INBOX.md before rendering; nothing was written." >&2
+      say "zen: legacy INBOX has unresolved entries at ${f#$TARGET/}." >&2
+      say "zen: resolve or migrate them to docs/INBOX.md before rendering; nothing was written." >&2
       return 1
     fi
   done
@@ -679,7 +679,7 @@ do_render() {
   esac
 
   # The engineering skills the role prompts cite. Fetched at a pinned commit so a
-  # re-render is reproducible and `orc2 doctor` can report drift; --vendor-skills
+  # re-render is reproducible and `zen doctor` can report drift; --vendor-skills
   # copies from the local install instead, for an offline setup.
   local s
   if [[ $VENDOR -eq 1 ]]; then
@@ -730,9 +730,9 @@ markers_sane() { # markers_sane <repo-relative-file>
   s="$(grep -c 'orc2:agent-skills:start' "$TARGET/$f" || true)"
   e="$(grep -c 'orc2:agent-skills:end'   "$TARGET/$f" || true)"
   if [[ "$s" != "$e" ]] || (( s > 1 )); then
-    say "orc2: $f has $s start and $e end markers — refusing to touch it." >&2
-    say "orc2: repair them so each appears at most once and in pairs, then re-run." >&2
-    say "orc2: (splicing an unbalanced block would delete everything after the start marker.)" >&2
+    say "zen: $f has $s start and $e end markers — refusing to touch it." >&2
+    say "zen: repair them so each appears at most once and in pairs, then re-run." >&2
+    say "zen: (splicing an unbalanced block would delete everything after the start marker.)" >&2
     return 1
   fi
   # Counts alone are not enough. With the end marker ABOVE the start, both counts
@@ -745,8 +745,8 @@ markers_sane() { # markers_sane <repo-relative-file>
     # `>=`, not `>`: both markers on ONE line balances the counts and passes an
     # order check, but the splice sets skip=1 on that line and never clears it.
     if (( sl >= el )); then
-      say "orc2: $f has its markers out of order or on the same line (start: $sl, end: $el)." >&2
-      say "orc2: refusing to touch it — splicing that would delete everything after line $sl." >&2
+      say "zen: $f has its markers out of order or on the same line (start: $sl, end: $el)." >&2
+      say "zen: refusing to touch it — splicing that would delete everything after line $sl." >&2
       return 1
     fi
   fi
@@ -896,7 +896,7 @@ next_step() {
       say ""
       step 1. "/to-tickets"                 "slice each spec into tracer-bullet tickets (or /to-issues)"
       cont                                  "each needs acceptance criteria, ## Depends on, ## Relevant files"
-      step 2. "edit .orc2/config.env"       "record the area order as ORC2_BUILD_ORDER, then: orc2 render"
+      step 2. "edit .orc2/config.env"       "record the area order as ORC2_BUILD_ORDER, then: zen render"
       step 3. "${cmd_prefix}run-prd <area>" "the pipeline"
       ;;
     ready)
@@ -948,9 +948,9 @@ do_skills() { # do_skills [--global]
     say ""
     if [[ -n "$missing" ]]; then
       say "Missing:$missing"
-      say "Install them for every project:  orc2 skills --global"
+      say "Install them for every project:  zen skills --global"
     else
-      say "All present. \`orc2 skills --global\` would install the planning set for every project."
+      say "All present. \`zen skills --global\` would install the planning set for every project."
     fi
     return 0
   fi
@@ -958,12 +958,12 @@ do_skills() { # do_skills [--global]
   # --global: install into the user's own skills directory, so every project gets
   # them and orc2 stops vendoring per-project copies.
   sha="${ORC2_SKILLS_PIN:-$(resolve_pin main || true)}"
-  [[ -n "$sha" ]] || { say "orc2: cannot reach github to resolve a commit — try again online" >&2; return 1; }
+  [[ -n "$sha" ]] || { say "zen: cannot reach github to resolve a commit — try again online" >&2; return 1; }
   tarball="${XDG_CACHE_HOME:-$HOME/.cache}/orc2/${ORC2_SKILLS_REPO//\//-}-${sha}.tgz"
   if [[ ! -s "$tarball" ]]; then
     mkdir -p "$(dirname "$tarball")"
     curl -fsSL -m 60 "https://codeload.github.com/${ORC2_SKILLS_REPO}/tar.gz/${sha}" -o "$tarball.part" \
-      || { say "orc2: download failed" >&2; rm -f "$tarball.part"; return 1; }
+      || { say "zen: download failed" >&2; rm -f "$tarball.part"; return 1; }
     mv "$tarball.part" "$tarball"
   fi
   mkdir -p "$UPSTREAM_SKILLS"
@@ -974,22 +974,22 @@ do_skills() { # do_skills [--global]
     else say "  ! $s not found upstream"; fi
   done
   say ""
-  say "Now run \`orc2 render\` — it drops the per-project copies of anything now installed globally."
+  say "Now run \`zen render\` — it drops the per-project copies of anything now installed globally."
 }
 
 # ------------------------------------------------------------------ doctor ---
 
 do_doctor() {
-  head2 "orc2 doctor — $TARGET"
+  head2 "ZenChain doctor — $TARGET"
   local fail=0
-  [[ -f "$TARGET/.orc2/config.env" ]] || { say "FAIL  no .orc2/config.env — run \`orc2 init\` here"; return 1; }
+  [[ -f "$TARGET/.orc2/config.env" ]] || { say "FAIL  no .orc2/config.env — run \`zen init\` here"; return 1; }
   # shellcheck disable=SC1091
   set -a; . "$TARGET/.orc2/config.env"; set +a; derive
 
   say "S  project=$ORC2_PROJECT tracker=$ORC2_TRACKER design=$ORC2_DESIGN runner=$ORC2_RUNNER/$ORC2_RUNNER_MECH lanes=$ORC2_LANES db=$ORC2_DB"
 
   [[ -f "$TARGET/$ORC2_PIPELINE_DIR/ORCHESTRATOR.md" ]] \
-    && say "PASS  orchestrator present" || { say "FAIL  ORCHESTRATOR.md missing — run \`orc2 render\`"; fail=1; }
+    && say "PASS  orchestrator present" || { say "FAIL  ORCHESTRATOR.md missing — run \`zen render\`"; fail=1; }
 
   local role loc
   for role in implementer fixer explorer reviewer qa decider; do
@@ -1035,12 +1035,12 @@ do_doctor() {
         || say "WARN  development database file $ORC2_DEV_DB does not exist yet — the first migration creates it" ;;
   esac
   [[ -f "$TARGET/docs/INBOX.md" ]] && say "PASS  human decision queue present (docs/INBOX.md)" \
-    || { say "WARN  docs/INBOX.md missing — run \`orc2 render\`"; }
+    || { say "WARN  docs/INBOX.md missing — run \`zen render\`"; }
   [[ -x "$TARGET/.orc2/bin/orc2-ticket-check" ]] && say "PASS  ticket readiness checker present" \
-    || { say "FAIL  .orc2/bin/orc2-ticket-check missing — run \`orc2 render\`"; fail=1; }
+    || { say "FAIL  .orc2/bin/orc2-ticket-check missing — run \`zen render\`"; fail=1; }
   if [[ "$ORC2_ANTI_SLOP" == enforced ]]; then
     if [[ ! -x "$TARGET/.orc2/bin/orc2-anti-slop-check" ]]; then
-      say "FAIL  .orc2/bin/orc2-anti-slop-check missing — run \`orc2 render\`"; fail=1
+      say "FAIL  .orc2/bin/orc2-anti-slop-check missing — run \`zen render\`"; fail=1
     elif anti_slop_out="$("$TARGET/.orc2/bin/orc2-anti-slop-check" "$TARGET" 2>&1)"; then
       say "PASS  anti-slop enforcement ready — $anti_slop_out"
     else
@@ -1053,13 +1053,13 @@ do_doctor() {
   local policy agents_target
   for policy in grill-with-docs-policy ticket-writing-policy; do
     [[ -f "$TARGET/docs/agents/$policy.md" ]] && say "PASS  local modifier $policy present" \
-      || { say "FAIL  local modifier $policy missing — run \`orc2 render\`"; fail=1; }
+      || { say "FAIL  local modifier $policy missing — run \`zen render\`"; fail=1; }
   done
   agents_target="${ORC2_AGENTS_FILE:-AGENTS.md}"
   grep -q 'grill-with-docs-policy.md' "$TARGET/$agents_target" 2>/dev/null \
     && grep -q 'ticket-writing-policy.md' "$TARGET/$agents_target" 2>/dev/null \
     && say "PASS  Agent skills block routes both local modifiers" \
-    || { say "FAIL  $agents_target does not route both local modifiers — run \`orc2 render\`"; fail=1; }
+      || { say "FAIL  $agents_target does not route both local modifiers — run \`zen render\`"; fail=1; }
   local legacy
   for legacy in "$TARGET/.scratch/decisions" "$TARGET/docs/decisions"; do
     [[ -d "$legacy" ]] && say "INFO  legacy decision records present at ${legacy#$TARGET/}; preserved but non-authoritative"
@@ -1084,7 +1084,7 @@ do_doctor() {
     if [[ -z "$d" ]]; then missing=$((missing + 1)); say "WARN  skill $s not reachable — role prompts citing it will dangle"; continue; fi
     if grep -q '^disable-model-invocation: true' "$d/SKILL.md" 2>/dev/null; then
       useronly=$((useronly + 1))
-      say "FAIL  skill $s is user-only ($d) — an agent cannot invoke it; re-run \`orc2 render\` to vendor a patched copy"
+      say "FAIL  skill $s is user-only ($d) — an agent cannot invoke it; re-run \`zen render\` to vendor a patched copy"
       fail=1
     fi
   done
@@ -1099,7 +1099,7 @@ do_doctor() {
       say "PASS  skills pinned at $ORC2_SKILLS_REPO@${ORC2_SKILLS_PIN:0:12} (current)"
     else
       say "INFO  skills pinned at ${ORC2_SKILLS_PIN:0:12}; upstream main is now ${head_sha:0:12}."
-      say "      Re-pin deliberately: clear ORC2_SKILLS_PIN in .orc2/config.env and run \`orc2 render\` — never mid-run."
+      say "      Re-pin deliberately: clear ORC2_SKILLS_PIN in .orc2/config.env and run \`zen render\` — never mid-run."
     fi
   else
     say "WARN  no ORC2_SKILLS_PIN recorded — the vendored skills are unversioned"
@@ -1114,18 +1114,18 @@ do_doctor() {
   done
   [[ -z "$fe_missing" ]] && say "PASS  planning skills reachable (plan-app can be followed)" \
     || { say "WARN  planning skills missing:$fe_missing"
-         say "      plan-app names these; run \`orc2 skills --global\` to install them"; }
+         say "      plan-app names these; run \`zen skills --global\` to install them"; }
 
   [[ -f "$TARGET/docs/agents/flow.md" ]] && say "PASS  flow doc present (the seam is documented)" \
-    || say "WARN  docs/agents/flow.md missing — run \`orc2 render\`"
+    || say "WARN  docs/agents/flow.md missing — run \`zen render\`"
   for c in grill-with-docs-policy ticket-writing-policy; do
     [[ -f "$TARGET/docs/agents/$c.md" ]] && say "PASS  local modifier present ($c)" \
-      || { say "WARN  docs/agents/$c.md missing — run \`orc2 render\`"; }
+      || { say "WARN  docs/agents/$c.md missing — run \`zen render\`"; }
   done
   if [[ -n "$ORC2_AGENTS_FILE" ]]; then
     grep -q 'orc2:agent-skills:start' "$TARGET/$ORC2_AGENTS_FILE" 2>/dev/null \
       && say "PASS  Agent skills block present in $ORC2_AGENTS_FILE (explicit target)" \
-      || say "WARN  no Agent skills block in $ORC2_AGENTS_FILE — run \`orc2 render\`"
+      || say "WARN  no Agent skills block in $ORC2_AGENTS_FILE — run \`zen render\`"
   else
     grep -q 'orc2:agent-skills:start' "$TARGET/AGENTS.md" 2>/dev/null \
       && say "PASS  Agent skills block present in AGENTS.md" \
@@ -1136,13 +1136,13 @@ do_doctor() {
       say "PASS  CLAUDE.md imports AGENTS.md"
     elif [[ "$ORC2_RUNNER" == claude ]]; then
       say "FAIL  CLAUDE.md does not import AGENTS.md, so the block may never reach the model."
-      say "      Run \`orc2 render\`, or add a line reading exactly: @AGENTS.md"
+      say "      Run \`zen render\`, or add a line reading exactly: @AGENTS.md"
       fail=1
     else
       say "INFO  CLAUDE.md does not import AGENTS.md (runner is $ORC2_RUNNER, which reads AGENTS.md directly)"
     fi
     if grep -q 'orc2:agent-skills:start' "$TARGET/CLAUDE.md" 2>/dev/null; then
-      say "FAIL  the block is in BOTH CLAUDE.md and AGENTS.md — they will drift. Run \`orc2 render\`."
+      say "FAIL  the block is in BOTH CLAUDE.md and AGENTS.md — they will drift. Run \`zen render\`."
       fail=1
     fi
   fi
@@ -1165,10 +1165,10 @@ case "$CMD" in
     head2 "Done"
     next_step
     say ""
-    say "Then: orc2 doctor $TARGET"
+  say "Then: zen doctor $TARGET"
     ;;
   render)
-    [[ -f "$TARGET/.orc2/config.env" ]] || { say "orc2: no .orc2/config.env in $TARGET — run \`orc2 init\` first" >&2; exit 2; }
+    [[ -f "$TARGET/.orc2/config.env" ]] || { say "zen: no .orc2/config.env in $TARGET — run \`zen init\` first" >&2; exit 2; }
     set -a; . "$TARGET/.orc2/config.env"; set +a
     do_render ;;
   doctor) do_doctor ;;
@@ -1177,5 +1177,5 @@ case "$CMD" in
     derive
     do_skills "${SKILLS_ARG:-}" ;;
   help|-h|--help) awk 'NR>1 && /^#/{sub(/^# ?/,""); print; next} NR>1{exit}' "$0" ;;
-  *) say "orc2: unknown command '$CMD' — try \`orc2 help\`" >&2; exit 2 ;;
+  *) say "zen: unknown command '$CMD' — try \`zen help\`" >&2; exit 2 ;;
 esac

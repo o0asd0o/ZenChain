@@ -17,7 +17,7 @@ Paste this file's contents as your instruction, or run it under `/loop` for an u
 
 **This file is the unattended half of a longer flow.** The interactive half — idea → grilled → spec → tickets — happens before you and is not yours to automate; `docs/agents/flow.md` maps both halves and the seam between them. You start where agent-ready tickets exist. The issue packet is the complete implementation contract. An underspecified ticket is moved to `needs-info`, given one human question in `docs/INBOX.md`, and never guessed at.
 
-Each role drives a skill: `implementer` → `/implement` + `/tdd`, `reviewer` → the two axes of `/code-review`, `fixer` and `qa` → `/diagnosing-bugs` on anything broken, and you → `/resolving-merge-conflicts` at merge time. The `decider` is a read-only advisor and does not invoke `/research` or write files. Skills are vendored at a pinned commit; `orc2 doctor` reports when upstream has moved.
+Each role drives a skill: `implementer` → `/implement` + `/tdd`, `reviewer` → the two axes of `/code-review`, `fixer` and `qa` → `/diagnosing-bugs` on anything broken, and you → `/resolving-merge-conflicts` at merge time. The `decider` is a read-only advisor and does not invoke `/research` or write files. Skills are vendored at a pinned commit; `zen doctor` reports when upstream has moved.
 
 <!-- orc2:include delegation-{{DELEGATION}} -->
 

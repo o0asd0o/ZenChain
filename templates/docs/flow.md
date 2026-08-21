@@ -21,7 +21,7 @@ Nothing above the seam is automated by the pipeline, and that is deliberate: mos
 
 Run these yourself, in one unbroken context window. Do not compact between them; the grilling, the spec, and the tickets should all build on the same thinking.
 
-**On an empty repo, start with `/plan-app`.** It is the checklist for this whole half: the app-wide grilling agenda (stack, domain vocabulary, trust boundaries, operations) and the decomposition into PRD areas that covers the application from foundation to release, security included. `orc2 doctor` prints the same route and adapts it to what the repo already has.
+**On an empty repo, start with `/plan-app`.** It is the checklist for this whole half: the app-wide grilling agenda (stack, domain vocabulary, trust boundaries, operations) and the decomposition into PRD areas that covers the application from foundation to release, security included. `zen doctor` prints the same route and adapts it to what the repo already has.
 
 | Situation | Start with |
 | --- | --- |
@@ -84,6 +84,6 @@ So the implementer may run `/code-review` on its own diff, and must fix what it 
 
 ## Vendored skills and the pin
 
-The skills above are vendored into this repo at a pinned commit, recorded as `ORC2_SKILLS_PIN` in `.orc2/config.env`. `orc2 doctor` reports when upstream has moved. Re-pin deliberately with `orc2 render` after clearing the value — never mid-run, because a role prompt and the skill it cites should not change under a lane that is already building.
+The skills above are vendored into this repo at a pinned commit, recorded as `ORC2_SKILLS_PIN` in `.orc2/config.env`. `zen doctor` reports when upstream has moved. Re-pin deliberately with `zen render` after clearing the value — never mid-run, because a role prompt and the skill it cites should not change under a lane that is already building.
 
 One skill is modified on the way in: upstream ships `/implement` as user-only, which an agent cannot invoke, so the flag is stripped and the file records that it was.
