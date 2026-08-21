@@ -1,17 +1,17 @@
 ## Delegation — roles are dispatched headlessly through the bridge
 
-This CLI has no native subagent mechanism, so every role runs as a fresh headless process through `.orc2/bin/orc2-agent`. Call it with the shell:
+This CLI has no native subagent mechanism, so every role runs as a fresh headless process through `.zenchain/bin/zenchain-agent`. Call it with the shell:
 
 ```bash
-.orc2/bin/orc2-agent explorer     "<one bounded question>"
-.orc2/bin/orc2-agent implementer  --cwd {{WORKTREE_DIR}}/<slug> "Implement <issue path>"
-.orc2/bin/orc2-agent reviewer     "<issue path, diff, changed files, gate results>"
-.orc2/bin/orc2-agent fixer        --cwd {{WORKTREE_DIR}}/<slug> "<reviewer findings>"
-.orc2/bin/orc2-agent qa           "<PRD path and reference directory>"
-.orc2/bin/orc2-agent decider      "<the question, the issue path, the context>"
+.zenchain/bin/zenchain-agent explorer     "<one bounded question>"
+.zenchain/bin/zenchain-agent implementer  --cwd {{WORKTREE_DIR}}/<slug> "Implement <issue path>"
+.zenchain/bin/zenchain-agent reviewer     "<issue path, diff, changed files, gate results>"
+.zenchain/bin/zenchain-agent fixer        --cwd {{WORKTREE_DIR}}/<slug> "<reviewer findings>"
+.zenchain/bin/zenchain-agent qa           "<PRD path and reference directory>"
+.zenchain/bin/zenchain-agent decider      "<the question, the issue path, the context>"
 ```
 
-The bridge reads each role's model, tools, and system prompt from `.orc2/agents/<name>.md`; change a model by editing that file's `model:` line.
+The bridge reads each role's model, tools, and system prompt from `.zenchain/agents/<name>.md`; change a model by editing that file's `model:` line.
 
 Three consequences of headless dispatch you have to work around, because they are not optional:
 

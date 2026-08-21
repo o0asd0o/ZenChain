@@ -38,7 +38,7 @@ Good uses: where a symbol or pattern lives, whether a helper already exists befo
 
 Give it one narrow question at a time. Do not delegate design decisions, test choices, or anything requiring judgement about the issue — those are yours. Treat what it returns as evidence, and verify anything load-bearing yourself before building on it.
 
-<!-- orc2:include skills-{{SKILLS_MODE}} -->
+<!-- zenchain:include skills-{{SKILLS_MODE}} -->
 
 **Override 1 — the issue approves the outcome.** The `tdd` skill's planning phase says to confirm the interface with the user, confirm which behaviours to test, and get approval before writing code. You are running unattended and must not ask. The issue's acceptance criteria, scenarios, and explicit contract references approve the behavior and boundaries. You still own the implementation approach. If the issue does not answer something material, stop and report it; the orchestrator routes one question through the decision advisor and `docs/INBOX.md`.
 

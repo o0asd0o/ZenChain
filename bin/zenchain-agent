@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# orc2-agent — run a role prompt as a headless agent on whichever backend the
-# project configured. Installed into <repo>/.orc2/bin/ by `orc2 init`.
+# zenchain-agent — run a role prompt as a headless agent on whichever backend the
+# project configured. Installed into <repo>/.zenchain/bin/ by `zenchain init`.
 #
-# Usage: orc2-agent <role> [--cwd DIR] [--backend claude|codex|pi] <prompt...>
-#        echo "$LONG_PROMPT" | orc2-agent explorer
+# Usage: zenchain-agent <role> [--cwd DIR] [--backend claude|codex|pi] <prompt...>
+#        echo "$LONG_PROMPT" | zenchain-agent explorer
 #
-# The role's model, tools, and system prompt come from .orc2/agents/<role>.md —
+# The role's model, tools, and system prompt come from .zenchain/agents/<role>.md —
 # never hardcoded here. To change a role's model, edit that file's `model:` line.
 #
 # Exit codes: 0 report on stdout · 2 usage/config error · 3 backend produced
@@ -13,25 +13,25 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-CONFIG="$REPO_ROOT/.orc2/config.env"
+CONFIG="$REPO_ROOT/.zenchain/config.env"
 [[ -f "$CONFIG" ]] && { set -a; . "$CONFIG"; set +a; }
 
-ROLE="${1:?usage: orc2-agent <role> [--cwd DIR] [--backend B] <prompt...>}"; shift
+ROLE="${1:?usage: zenchain-agent <role> [--cwd DIR] [--backend B] <prompt...>}"; shift
 CWD="$REPO_ROOT"; BACKEND=""
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
     --cwd)     CWD="$2"; shift 2 ;;
     --backend) BACKEND="$2"; shift 2 ;;
-    *) echo "orc2-agent: unknown flag $1" >&2; exit 2 ;;
+    *) echo "zenchain-agent: unknown flag $1" >&2; exit 2 ;;
   esac
 done
 
-AGENT_FILE="$REPO_ROOT/.orc2/agents/$ROLE.md"
-[[ -f "$AGENT_FILE" ]] || { echo "orc2-agent: no role file $AGENT_FILE" >&2; exit 2; }
+AGENT_FILE="$REPO_ROOT/.zenchain/agents/$ROLE.md"
+[[ -f "$AGENT_FILE" ]] || { echo "zenchain-agent: no role file $AGENT_FILE" >&2; exit 2; }
 
 PROMPT="$*"
 [[ -z "$PROMPT" && ! -t 0 ]] && PROMPT="$(cat)"
-[[ -n "$PROMPT" ]] || { echo "orc2-agent: empty prompt" >&2; exit 2; }
+[[ -n "$PROMPT" ]] || { echo "zenchain-agent: empty prompt" >&2; exit 2; }
 
 # Frontmatter (between the first two --- lines) gives model + tools; the body
 # after the second --- is the system prompt.
@@ -42,14 +42,14 @@ TOOLS="$(sed -n '/^---$/,/^---$/p' "$AGENT_FILE" | sed -n 's/^tools:[[:space:]]*
 # used to read model and tools but not this, so every role dispatched through it
 # silently ran at the backend's default. Each CLI spells it differently.
 EFFORT="$(sed -n '/^---$/,/^---$/p' "$AGENT_FILE" | sed -n 's/^effort:[[:space:]]*//p' | head -1 | tr -d ' ')"
-EFFORT="${ORC2_AGENT_EFFORT:-$EFFORT}"
+EFFORT="${ZENCHAIN_AGENT_EFFORT:-$EFFORT}"
 # Only the FIRST TWO `---` lines close the frontmatter. Counting every one of
 # them drops a horizontal rule inside the role body out of the system prompt.
 BODY="$(awk 'BEGIN{n=0} n<2 && /^---$/{n++; next} n>=2{print}' "$AGENT_FILE")"
 
-# ORC2_AGENT_MODEL overrides the frontmatter for one run — model A/B without
+# ZENCHAIN_AGENT_MODEL overrides the frontmatter for one run — model A/B without
 # editing the role file.
-MODEL="${ORC2_AGENT_MODEL:-$MODEL}"
+MODEL="${ZENCHAIN_AGENT_MODEL:-$MODEL}"
 # `inherit` means "whatever the backend is configured to use" — pass no flag.
 [[ "$MODEL" == inherit || "$MODEL" == default ]] && MODEL=""
 
@@ -57,13 +57,13 @@ MODEL="${ORC2_AGENT_MODEL:-$MODEL}"
 # orchestrator's own. --backend wins over both.
 if [[ -z "$BACKEND" ]]; then
   case "$ROLE" in
-    implementer|fixer|explorer) BACKEND="${ORC2_RUNNER_MECH:-claude}" ;;
-    *)                          BACKEND="${ORC2_RUNNER:-claude}" ;;
+    implementer|fixer|explorer) BACKEND="${ZENCHAIN_RUNNER_MECH:-claude}" ;;
+    *)                          BACKEND="${ZENCHAIN_RUNNER:-claude}" ;;
   esac
 fi
 
-SYS_FILE="$(mktemp -t orc2-agent-sys.XXXXXX)"
-OUT_FILE="$(mktemp -t orc2-agent-out.XXXXXX)"
+SYS_FILE="$(mktemp -t zenchain-agent-sys.XXXXXX)"
+OUT_FILE="$(mktemp -t zenchain-agent-out.XXXXXX)"
 trap 'rm -f "$SYS_FILE" "$OUT_FILE"' EXIT
 printf '%s\n' "$BODY" >"$SYS_FILE"
 
@@ -90,13 +90,13 @@ case "$BACKEND" in
     # Codex exec has no system-prompt flag, so the role prompt is prepended to
     # the task. Keep the separator — it is what stops the model reading its own
     # instructions as part of the task.
-    ARGS=(exec --cd "$CWD" "${ORC2_CODEX_APPROVAL:---full-auto}")
+    ARGS=(exec --cd "$CWD" "${ZENCHAIN_CODEX_APPROVAL:---full-auto}")
     [[ -n "$MODEL" ]] && ARGS+=(-m "$MODEL")
     # Codex takes it as a config override rather than a flag.
     [[ -n "$EFFORT" ]] && ARGS+=(-c "model_reasoning_effort=\"$EFFORT\"")
     codex "${ARGS[@]}" "$(printf '%s\n\n===== TASK =====\n\n%s\n' "$BODY" "$PROMPT")" >"$OUT_FILE" 2>&1
     ;;
-  *) echo "orc2-agent: unknown backend '$BACKEND'" >&2; exit 2 ;;
+  *) echo "zenchain-agent: unknown backend '$BACKEND'" >&2; exit 2 ;;
 esac
 STATUS=$?
 set -e
@@ -108,8 +108,8 @@ cat "$OUT_FILE"
 # stdout — which reads to the orchestrator as a clean run that found nothing to
 # do. Fail loudly instead.
 if [[ ! -s "$OUT_FILE" ]]; then
-  echo "orc2-agent: $BACKEND produced NO output for role '$ROLE' (exit $STATUS)." >&2
-  echo "orc2-agent: treat this as a failed dispatch, not an empty result. Check auth/credit on '$BACKEND' before respawning." >&2
+  echo "zenchain-agent: $BACKEND produced NO output for role '$ROLE' (exit $STATUS)." >&2
+  echo "zenchain-agent: treat this as a failed dispatch, not an empty result. Check auth/credit on '$BACKEND' before respawning." >&2
   exit 3
 fi
 exit $STATUS

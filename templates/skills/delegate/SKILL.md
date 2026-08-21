@@ -1,11 +1,11 @@
 ---
 name: delegate
-description: Dispatch a pipeline role (implementer, fixer, explorer, reviewer, qa, decider) to its configured backend through the orc2-agent bridge instead of spawning a native subagent. Use when the orchestrator needs a role that runs outside this CLI.
+description: Dispatch a pipeline role (implementer, fixer, explorer, reviewer, qa, decider) to its configured backend through the zenchain-agent bridge instead of spawning a native subagent. Use when the orchestrator needs a role that runs outside this CLI.
 ---
 
 # Delegate a role through the bridge
 
-The orchestrator (`{{PIPELINE_DIR}}/ORCHESTRATOR.md`) owns sequencing, the gate, the round cap, and every merge. Roles that run outside this CLI go through `.orc2/bin/orc2-agent`.
+The orchestrator (`{{PIPELINE_DIR}}/ORCHESTRATOR.md`) owns sequencing, the gate, the round cap, and every merge. Roles that run outside this CLI go through `.zenchain/bin/zenchain-agent`.
 
 ## Invoke
 
@@ -13,20 +13,20 @@ Call it with the Bash tool.
 
 ```bash
 # explorer — one bounded question, read-only
-.orc2/bin/orc2-agent explorer "Where is the discount calculation defined and what does it round?"
+.zenchain/bin/zenchain-agent explorer "Where is the discount calculation defined and what does it round?"
 
 # implementer — build one issue, in its worktree
-.orc2/bin/orc2-agent implementer --cwd {{WORKTREE_DIR}}/<slug> "Implement <issue path>"
+.zenchain/bin/zenchain-agent implementer --cwd {{WORKTREE_DIR}}/<slug> "Implement <issue path>"
 
 # fixer — apply findings, in the same worktree
-.orc2/bin/orc2-agent fixer --cwd {{WORKTREE_DIR}}/<slug> "$FINDINGS"
+.zenchain/bin/zenchain-agent fixer --cwd {{WORKTREE_DIR}}/<slug> "$FINDINGS"
 ```
 
 `--cwd` sets the working directory — the lane's worktree for implementer and fixer, omitted for read-only roles. A long prompt can be piped on stdin instead of passed as an argument. `--backend <name>` overrides the configured backend for one call.
 
 ## What the bridge does
 
-Reads `.orc2/agents/<role>.md`, pulls `model` and `tools` from its frontmatter and the body as the system prompt, and runs the configured backend. The model is **never hardcoded in the bridge** — to change which model a role uses, edit the `model:` line in `.orc2/agents/<role>.md`. Or set `ORC2_AGENT_MODEL` for a single run, to A/B a model without editing anything.
+Reads `.zenchain/agents/<role>.md`, pulls `model` and `tools` from its frontmatter and the body as the system prompt, and runs the configured backend. The model is **never hardcoded in the bridge** — to change which model a role uses, edit the `model:` line in `.zenchain/agents/<role>.md`. Or set `ZENCHAIN_AGENT_MODEL` for a single run, to A/B a model without editing anything.
 
 The backend's stdout is the agent's report. **Treat it as a claim, not ground truth.**
 

@@ -19,7 +19,7 @@ Paste this file's contents as your instruction, or run it under `/loop` for an u
 
 Each role drives a skill: `implementer` → `/implement` + `/tdd`, `reviewer` → the two axes of `/code-review`, `fixer` and `qa` → `/diagnosing-bugs` on anything broken, and you → `/resolving-merge-conflicts` at merge time. The `decider` is a read-only advisor and does not invoke `/research` or write files. Skills are vendored at a pinned commit; `zen doctor` reports when upstream has moved.
 
-<!-- orc2:include delegation-{{DELEGATION}} -->
+<!-- zenchain:include delegation-{{DELEGATION}} -->
 
 ## Ground rules
 
@@ -37,21 +37,21 @@ Run every command in that list, in that order, every time. A subset is not the g
 
 **An empty report is a failed dispatch, not an empty result.** A subagent that returns nothing — no findings, no summary, no error — has died, not finished. Re-check the backend before respawning, and never read silence as "nothing to do."
 
-<!-- orc2:include tracker-{{TRACKER}} -->
+<!-- zenchain:include tracker-{{TRACKER}} -->
 
-<!-- orc2:include lanes-{{LANES_MODE}} -->
+<!-- zenchain:include lanes-{{LANES_MODE}} -->
 
-<!-- orc2:include db-{{DB}} -->
+<!-- zenchain:include db-{{DB}} -->
 
 ## Per issue
 
-1. **Select and validate.** Read the issue set. Build the list of issues that are `ready-for-agent` and whose dependencies are complete. Before selection, run `{{TICKET_CHECK_CMD}}`; add `--ui` immediately after `orc2-ticket-check` for UI fidelity work. A non-zero result blocks the lane before any role is spawned. The checker requires these exact sections: `## Acceptance Criteria`, `## Scenarios`, `## Depends on`, `## Relevant files`, `## Contract References`, and `## Approved Technical Changes`; UI fidelity work also needs `## Visual Reference`. `None` is valid where the section permits it.
+1. **Select and validate.** Read the issue set. Build the list of issues that are `ready-for-agent` and whose dependencies are complete. Before selection, run `{{TICKET_CHECK_CMD}}`; add `--ui` immediately after `zenchain-ticket-check` for UI fidelity work. A non-zero result blocks the lane before any role is spawned. The checker requires these exact sections: `## Acceptance Criteria`, `## Scenarios`, `## Depends on`, `## Relevant files`, `## Contract References`, and `## Approved Technical Changes`; UI fidelity work also needs `## Visual Reference`. `None` is valid where the section permits it.
 
    Fail readiness when an acceptance criterion is not observable or names no proof, a scenario contains `?` or TODO, a contract reference is broad instead of an exact path and heading, an expected technical addition is not approved, or two clauses contradict. Send the material ambiguity to the read-only `decider`, append its single plain-language entry to `docs/INBOX.md`, set the issue to `needs-info`, and stop that lane. The advisor does not edit anything. The human answer must be written into the controlling issue, PRD direction, or explicitly approved ADR; then remove the INBOX entry and return the issue to `ready-for-agent`.
 
    Take the lowest-numbered valid issue{{LANES_SELECT_SUFFIX}}. Respect the build order: {{BUILD_ORDER_LINE}}
 
-<!-- orc2:include design-triage-{{DESIGN}} -->
+<!-- zenchain:include design-triage-{{DESIGN}} -->
 
 2. **Implement.** Spawn `implementer` with the issue path. Wait for it.
 
@@ -97,7 +97,7 @@ Run every command in that list, in that order, every time. A subset is not the g
 
    **Real logic in a shared file — stop.** If both lanes changed the same behaviour, the pairing rule failed. Do not reconcile two implementations you did not write. If one is clearly authoritative from the two issue packets, hand both sides to the lane's `fixer`. If which behavior should win is open, route the advisor's question through `docs/INBOX.md` and stop for the human. If resolution needs re-implementation, escalate. This is the case where a plausible-looking resolution is most dangerous, because it compiles.
 
-<!-- orc2:include codegen-{{CODEGEN}} -->
+<!-- zenchain:include codegen-{{CODEGEN}} -->
 
 5. **Re-run the full gate in the worktree.** Every command, after every conflict resolution. A resolved conflict that compiles is not a resolved conflict that works, and this is the only step that tells the difference.
 
@@ -113,7 +113,7 @@ Run every command in that list, in that order, every time. A subset is not the g
 
 When every issue under a PRD is closed:
 
-<!-- orc2:include design-{{DESIGN}} -->
+<!-- zenchain:include design-{{DESIGN}} -->
 
 ### Run the QA loop, capped at {{ROUND_CAP}}
 
@@ -130,9 +130,9 @@ Two things the fixer may not do in this loop, and you enforce both. It may not c
 
 QA's "needs human eyes" list is never auto-accepted, and never sent to the fixer. It goes to the human at the checkpoint, always.
 
-<!-- orc2:include notify-{{NOTIFY}} -->
+<!-- zenchain:include notify-{{NOTIFY}} -->
 
-<!-- orc2:include dependencies -->
+<!-- zenchain:include dependencies -->
 
 ## Blockers and open questions go through `docs/INBOX.md`
 

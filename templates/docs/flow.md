@@ -84,6 +84,6 @@ So the implementer may run `/code-review` on its own diff, and must fix what it 
 
 ## Vendored skills and the pin
 
-The skills above are vendored into this repo at a pinned commit, recorded as `ORC2_SKILLS_PIN` in `.orc2/config.env`. `zen doctor` reports when upstream has moved. Re-pin deliberately with `zen render` after clearing the value — never mid-run, because a role prompt and the skill it cites should not change under a lane that is already building.
+The skills above are vendored into this repo at a pinned commit, recorded as `ZENCHAIN_SKILLS_PIN` in `.zenchain/config.env`. `zen doctor` reports when upstream has moved. Re-pin deliberately with `zen render` after clearing the value — never mid-run, because a role prompt and the skill it cites should not change under a lane that is already building.
 
 One skill is modified on the way in: upstream ships `/implement` as user-only, which an agent cannot invoke, so the flag is stripped and the file records that it was.

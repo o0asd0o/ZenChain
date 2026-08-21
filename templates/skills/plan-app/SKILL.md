@@ -54,7 +54,7 @@ Rules for a batch:
 - **Group by batch, not by topic.** Questions from different sections belong in one batch if none depends on the others. Do not walk the sections in order for tidiness — that reintroduces the serialisation the batching exists to avoid.
 - **Lead each option with the recommendation** so it can be accepted in a word. Most answers here have an obvious default for the app in question; make the human confirm rather than compose.
 - **One screen per batch.** Four questions with a one-line explainer each. If a batch needs a paragraph of setup to make sense, it is two batches, or it is behind a gate you missed.
-- **Never batch a question whose answer you can read.** Check the repo and `.orc2/config.env` first. Asking what the gate command is when it is already in config loses the human's patience.
+- **Never batch a question whose answer you can read.** Check the repo and `.zenchain/config.env` first. Asking what the gate command is when it is already in config loses the human's patience.
 - **Batch the follow-ups too.** When a gate opens, the questions behind it are usually independent of each other — send them as one batch, not as a new one-at-a-time chain.
 
 The five real gates, and nothing else:
@@ -86,7 +86,7 @@ Independent of Batch A and of each other. Capture answers in the specs. Only can
 - Hosting and deploy target. Can the whole thing run locally without credentials? If not, say what cannot, because every future test depends on it.
 - Repo shape: single package or workspace, and where code lives.
 
-**Two of these are already answered — read, do not ask.** The data store engine is `ORC2_DB` and the gate commands are `ORC2_GATE` in `.orc2/config.env`. Confirm them in one line each. A proposed change belongs in the relevant ticket's `## Approved Technical Changes` after human approval.
+**Two of these are already answered — read, do not ask.** The data store engine is `ZENCHAIN_DB` and the gate commands are `ZENCHAIN_GATE` in `.zenchain/config.env`. Confirm them in one line each. A proposed change belongs in the relevant ticket's `## Approved Technical Changes` after human approval.
 
 Anti-slop is `{{ANTI_SLOP}}`. When it is `enforced` and the application uses TypeScript or JavaScript, the Foundation ticket must vendor [dmmulroy/anti-slop](https://github.com/dmmulroy/anti-slop) at `tools/oxlint/anti-slop/`, register every generic rule as an error, and list `oxlint` plus `@oxlint/plugins` under `## Approved Technical Changes`. Add the Effect rule group only when `effect` is a direct dependency. The existing lint command remains the gate; do not add a network-based `npx` command to each run.
 
@@ -136,7 +136,7 @@ Now split the app into areas, each of which becomes one PRD. The rules:
 
 1. **An area is a vertical capability, not a layer.** "Checkout" is an area; "the database" is not. A PRD whose tickets cannot be demonstrated to a person is a layer wearing an area's name.
 2. **Foundation comes first and is genuinely first.** It is the only area allowed to be infrastructural, because everything else is unbuildable without it.
-3. **Order by dependency and write the order down.** It goes in `.orc2/config.env` as `ORC2_BUILD_ORDER`, and the orchestrator reads it when choosing what to run next.
+3. **Order by dependency and write the order down.** It goes in `.zenchain/config.env` as `ZENCHAIN_BUILD_ORDER`, and the orchestrator reads it when choosing what to run next.
 4. **Cover to release, not to feature-complete.** An app that works on a laptop is not shipped. If there is no area covering deploy, observability, and rollback, the plan stops at the demo.
 5. **Every area names its own security acceptance criteria** — see below.
 
@@ -191,7 +191,7 @@ Per PRD, run `/to-tickets` or `/to-issues` after reading `docs/agents/ticket-wri
 - `## Approved Technical Changes` — exact material additions, or `None`
 - `## Visual Reference` on screen work, with a tagged source
 
-Then record the area order as `ORC2_BUILD_ORDER` in `.orc2/config.env` and run `zen render`, so the orchestrator and the entry-point skills all state the same order.
+Then record the area order as `ZENCHAIN_BUILD_ORDER` in `.zenchain/config.env` and run `zen render`, so the orchestrator and the entry-point skills all state the same order.
 
 Only now does `/run-prd <area>` mean anything. Run the first area, stop at its human checkpoint, and look at what came out before starting the second — the first PRD through a new pipeline is also a test of the plan.
 

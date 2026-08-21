@@ -1,14 +1,14 @@
 ## Delegation — `implementer`, `fixer`, `explorer` run on `{{RUNNER_MECH}}`, not on this CLI
 
-These three mechanical roles are delegated to cheaper models on `{{RUNNER_MECH}}` through the bridge `.orc2/bin/orc2-agent`. **Do not spawn them as native subagents** — that runs them on this CLI's model and defeats the point. Everywhere below that says "spawn `implementer`/`fixer`/`explorer`", it means: call the bridge with the Bash tool.
+These three mechanical roles are delegated to cheaper models on `{{RUNNER_MECH}}` through the bridge `.zenchain/bin/zenchain-agent`. **Do not spawn them as native subagents** — that runs them on this CLI's model and defeats the point. Everywhere below that says "spawn `implementer`/`fixer`/`explorer`", it means: call the bridge with the Bash tool.
 
 ```bash
-.orc2/bin/orc2-agent explorer     "<one bounded question>"
-.orc2/bin/orc2-agent implementer  --cwd {{WORKTREE_DIR}}/<slug> "Implement <issue path>"
-.orc2/bin/orc2-agent fixer        --cwd {{WORKTREE_DIR}}/<slug> "<reviewer findings>"
+.zenchain/bin/zenchain-agent explorer     "<one bounded question>"
+.zenchain/bin/zenchain-agent implementer  --cwd {{WORKTREE_DIR}}/<slug> "Implement <issue path>"
+.zenchain/bin/zenchain-agent fixer        --cwd {{WORKTREE_DIR}}/<slug> "<reviewer findings>"
 ```
 
-The bridge reads each role's model, tools, and system prompt from `.orc2/agents/<name>.md`; change a model by editing that file's `model:` line.
+The bridge reads each role's model, tools, and system prompt from `.zenchain/agents/<name>.md`; change a model by editing that file's `model:` line.
 
 `reviewer`, `qa` and `decider` — the judgement roles — stay native subagents on this CLI, spawned with the `Agent` tool from `.claude/agents/`. Return to a running one with `SendMessage` rather than spawning a fresh one; that is what lets a reviewer verify its own findings instead of re-deriving them.
 

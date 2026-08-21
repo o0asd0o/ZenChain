@@ -68,7 +68,7 @@ features/   the actual UI and logic, in one folder per capability.
 
 A useful test before you keep a comment: **delete it and re-read the code.** If nothing was lost, it was noise.
 
-<!-- orc2:include anti-slop-{{ANTI_SLOP}} -->
+<!-- zenchain:include anti-slop-{{ANTI_SLOP}} -->
 
 ## When this file and the existing code disagree
 

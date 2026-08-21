@@ -38,10 +38,10 @@ The local gate is what the orchestrator is accountable for, and it runs before t
 Before any implementation role starts:
 
 ```bash
-gh issue view "$ISSUE_NUMBER" --json body --jq .body | .orc2/bin/orc2-ticket-check -
+gh issue view "$ISSUE_NUMBER" --json body --jq .body | .zenchain/bin/zenchain-ticket-check -
 ```
 
-For UI fidelity work, insert `--ui` after `orc2-ticket-check`. A non-zero exit means `needs-info`; do not spawn the implementer.
+For UI fidelity work, insert `--ui` after `zenchain-ticket-check`. A non-zero exit means `needs-info`; do not spawn the implementer.
 
 ## Visual Reference on screen-fidelity issues
 

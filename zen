@@ -2,7 +2,7 @@
 # ZenChain — install the six-agent implementation pipeline into a project.
 #
 #   zen init [target-dir]       interactive setup, then render
-#   zen render [target-dir]     re-render from .orc2/config.env (after editing it)
+#   zen render [target-dir]     re-render from .zenchain/config.env (after editing it)
 #   zen doctor [target-dir]     check the install and its backends
 #   zen skills [--global]       show where each skill lives; --global installs the
 #                               planning set into ~/.claude/skills, for every project
@@ -11,7 +11,7 @@
 #        --yes            accept every default, skip the interview
 #        --vendor-skills  copy skills from ~/.claude/skills instead of fetching upstream
 #
-# Everything the interview asks becomes a variable in <target>/.orc2/config.env.
+# Everything the interview asks becomes a variable in <target>/.zenchain/config.env.
 # Edit that file and `zen render` to change the generated pipeline later.
 set -euo pipefail
 
@@ -32,20 +32,20 @@ while [[ -L "$_src" ]]; do
   _src="$(readlink "$_src")"
   [[ "$_src" != /* ]] && _src="$_dir/$_src"
 done
-ORC2_HOME="$(cd -P "$(dirname "$_src")" && pwd)"
+ZENCHAIN_HOME="$(cd -P "$(dirname "$_src")" && pwd)"
 unset _src _dir
-TPL="$ORC2_HOME/templates"
+TPL="$ZENCHAIN_HOME/templates"
 
 # Fail before writing anything if the kit is not where we think it is. A partial
 # render is worse than no render: it leaves an install that looks present and
 # is missing its roles.
 [[ -f "$TPL/ORCHESTRATOR.md" ]] || {
-  echo "zen: cannot find templates at $TPL (resolved kit dir: $ORC2_HOME)." >&2
+  echo "zen: cannot find templates at $TPL (resolved kit dir: $ZENCHAIN_HOME)." >&2
   echo "zen: the kit moved, or this copy was copied instead of symlinked. Re-link it:" >&2
   echo "zen:   ln -sf /path/to/zen/zen ~/.local/bin/zen" >&2
   exit 2
 }
-UPSTREAM_SKILLS="${ORC2_UPSTREAM_SKILLS:-$HOME/.claude/skills}"
+UPSTREAM_SKILLS="${ZENCHAIN_UPSTREAM_SKILLS:-$HOME/.claude/skills}"
 
 CMD="${1:-help}"; shift || true
 TARGET="$PWD"; ANSWERS=""; ASSUME_YES=0; VENDOR=0; SKILLS_ARG=""
@@ -115,113 +115,113 @@ detect_gate() {
 
 interview() {
   head2 "ZenChain — pipeline setup for $(basename "$TARGET")"
-  say "Every answer lands in .orc2/config.env. Edit it and re-run \`zen render\` to change your mind."
+  say "Every answer lands in .zenchain/config.env. Edit it and re-run \`zen render\` to change your mind."
 
-  ask ORC2_PROJECT "Project name" "$(basename "$TARGET")"
+  ask ZENCHAIN_PROJECT "Project name" "$(basename "$TARGET")"
 
-  ask_choice ORC2_TRACKER \
+  ask_choice ZENCHAIN_TRACKER \
     "Where do issues live?" scratch \
     "scratch  — markdown files in-repo under .scratch/<feature>/issues/ (no remote, no gh)" \
     "github   — GitHub issues, driven with the gh CLI"
 
-  ask_choice ORC2_DESIGN \
+  ask_choice ZENCHAIN_DESIGN \
     "What is the design contract for screen work?" none \
     "none  — no visual reference; behaviour only" \
     "figma — a Figma file is the contract; agents extract nodes via the Figma MCP" \
     "lofi  — lo-fi mocks or sketches; every screen needs a design-triage pass first"
 
-  if [[ "$ORC2_DESIGN" == figma ]]; then
-    ask ORC2_FIGMA_FILE_KEY "Figma file key (from the /design/<key>/ URL segment)" ""
-    ask ORC2_FIGMA_ROOT_NODE "Root frame node id (e.g. 1:645), blank if none" ""
+  if [[ "$ZENCHAIN_DESIGN" == figma ]]; then
+    ask ZENCHAIN_FIGMA_FILE_KEY "Figma file key (from the /design/<key>/ URL segment)" ""
+    ask ZENCHAIN_FIGMA_ROOT_NODE "Root frame node id (e.g. 1:645), blank if none" ""
   fi
-  if [[ "$ORC2_DESIGN" == lofi ]]; then
-    ask ORC2_LOFI_DIR "Directory holding the lo-fi mocks (committed, agent-readable)" "design/lofi"
+  if [[ "$ZENCHAIN_DESIGN" == lofi ]]; then
+    ask ZENCHAIN_LOFI_DIR "Directory holding the lo-fi mocks (committed, agent-readable)" "design/lofi"
   fi
 
-  ask_choice ORC2_RUNNER \
+  ask_choice ZENCHAIN_RUNNER \
     "Which CLI runs the orchestrator and the judgement roles (reviewer, qa, decider)?" claude \
     "claude — Claude Code; roles are native subagents in .claude/agents/" \
     "codex  — Codex CLI; roles are dispatched headlessly through the ZenChain bridge"
 
-  ask_choice ORC2_RUNNER_MECH \
+  ask_choice ZENCHAIN_RUNNER_MECH \
     "Which backend runs the mechanical roles (implementer, fixer, explorer)?" same \
     "same  — the same CLI as above (simplest; one bill, one toolchain)" \
     "pi    — pi CLI on cheap external models, via the ZenChain bridge" \
     "codex — Codex CLI, via the ZenChain bridge"
-  [[ "$ORC2_RUNNER_MECH" == same ]] && ORC2_RUNNER_MECH="$ORC2_RUNNER" && export ORC2_RUNNER_MECH
+  [[ "$ZENCHAIN_RUNNER_MECH" == same ]] && ZENCHAIN_RUNNER_MECH="$ZENCHAIN_RUNNER" && export ZENCHAIN_RUNNER_MECH
 
   head2 "Models"
-  if [[ "$ORC2_RUNNER" == claude ]]; then
-    ask ORC2_MODEL_JUDGE "Reviewer model (per-issue judgement, runs often)" "claude-opus-4-8"
-    ask ORC2_MODEL_GATE  "QA + decider model (gates a whole PRD)"            "claude-opus-5"
+  if [[ "$ZENCHAIN_RUNNER" == claude ]]; then
+    ask ZENCHAIN_MODEL_JUDGE "Reviewer model (per-issue judgement, runs often)" "claude-opus-4-8"
+    ask ZENCHAIN_MODEL_GATE  "QA + decider model (gates a whole PRD)"            "claude-opus-5"
   else
-    ask ORC2_MODEL_JUDGE "Reviewer model (blank = the CLI's configured default)" ""
-    ask ORC2_MODEL_GATE  "QA + decider model (blank = default)"                 ""
+    ask ZENCHAIN_MODEL_JUDGE "Reviewer model (blank = the CLI's configured default)" ""
+    ask ZENCHAIN_MODEL_GATE  "QA + decider model (blank = default)"                 ""
   fi
-  if [[ "$ORC2_RUNNER_MECH" == claude ]]; then
-    ask ORC2_MODEL_BUILD "Implementer + fixer model" "claude-sonnet-5"
-    ask ORC2_MODEL_SCAN  "Explorer model (cheap, read-only lookups)" "haiku"
+  if [[ "$ZENCHAIN_RUNNER_MECH" == claude ]]; then
+    ask ZENCHAIN_MODEL_BUILD "Implementer + fixer model" "claude-sonnet-5"
+    ask ZENCHAIN_MODEL_SCAN  "Explorer model (cheap, read-only lookups)" "haiku"
   else
-    ask ORC2_MODEL_BUILD "Implementer + fixer model (backend-qualified, blank = default)" ""
-    ask ORC2_MODEL_SCAN  "Explorer model (blank = default)" ""
+    ask ZENCHAIN_MODEL_BUILD "Implementer + fixer model (backend-qualified, blank = default)" ""
+    ask ZENCHAIN_MODEL_SCAN  "Explorer model (blank = default)" ""
   fi
 
   head2 "The gate"
   say "The orchestrator runs these itself after every implement and fix. Agent reports are never trusted in their place."
-  ask ORC2_GATE "Gate commands, semicolon-separated, in order" "$(detect_gate)"
-  ask_choice ORC2_ANTI_SLOP "Enforce anti-slop for TypeScript/JavaScript code?" enforced \
+  ask ZENCHAIN_GATE "Gate commands, semicolon-separated, in order" "$(detect_gate)"
+  ask_choice ZENCHAIN_ANTI_SLOP "Enforce anti-slop for TypeScript/JavaScript code?" enforced \
     "enforced — require the vendored Oxlint plugin and run its preflight before the normal gate" \
     "off      — use this repository's own JavaScript/TypeScript lint policy"
 
-  ask ORC2_MAIN_BRANCH "Integration branch" \
+  ask ZENCHAIN_MAIN_BRANCH "Integration branch" \
     "$(git -C "$TARGET" symbolic-ref --quiet --short HEAD 2>/dev/null || echo main)"
-  ask ORC2_WORKTREE_DIR "Where lane worktrees are created" ".worktrees"
+  ask ZENCHAIN_WORKTREE_DIR "Where lane worktrees are created" ".worktrees"
 
-  ask_choice ORC2_LANES "How many issues may run concurrently?" 1 \
+  ask_choice ZENCHAIN_LANES "How many issues may run concurrently?" 1 \
     "1 — serial; simplest, no merge interleaving to reason about" \
     "2 — two lanes, paired by change surface (the cap, not a target)"
 
-  ask_choice ORC2_DB "Which database does the test suite write to?" none \
+  ask_choice ZENCHAIN_DB "Which database does the test suite write to?" none \
     "none     — no database; the gate touches no shared stateful service" \
     "sqlite   — a file per lane; isolation is a path, nothing to provision" \
     "postgres — a database per lane, created and dropped around the run"
-  case "$ORC2_DB" in
+  case "$ZENCHAIN_DB" in
     sqlite)
-      ask ORC2_DEV_DB      "The human's development database file (never deleted, never a lane target)" "data/${ORC2_PROJECT}.db"
-      ask ORC2_LANE_PREFIX "Lane database file prefix (the delete guard matches on it)" "data/lane-"
-      ask ORC2_DB_URI_VAR  "Env var holding the connection string or file path" "DATABASE_URI" ;;
+      ask ZENCHAIN_DEV_DB      "The human's development database file (never deleted, never a lane target)" "data/${ZENCHAIN_PROJECT}.db"
+      ask ZENCHAIN_LANE_PREFIX "Lane database file prefix (the delete guard matches on it)" "data/lane-"
+      ask ZENCHAIN_DB_URI_VAR  "Env var holding the connection string or file path" "DATABASE_URI" ;;
     postgres)
-      ask ORC2_DEV_DB      "The human's development database (never dropped, never a lane target)" "${ORC2_PROJECT}_dev"
-      ask ORC2_LANE_PREFIX "Lane database name prefix (the drop guard matches on it)" "${ORC2_PROJECT}_lane_"
-      ask ORC2_DB_URI_VAR  "Env var holding the connection string" "DATABASE_URI" ;;
+      ask ZENCHAIN_DEV_DB      "The human's development database (never dropped, never a lane target)" "${ZENCHAIN_PROJECT}_dev"
+      ask ZENCHAIN_LANE_PREFIX "Lane database name prefix (the drop guard matches on it)" "${ZENCHAIN_PROJECT}_lane_"
+      ask ZENCHAIN_DB_URI_VAR  "Env var holding the connection string" "DATABASE_URI" ;;
   esac
-  [[ "$ORC2_DB" != none ]] && say "  → the saved config is the authority for this engine choice."
+  [[ "$ZENCHAIN_DB" != none ]] && say "  → the saved config is the authority for this engine choice."
 
-  ask_choice ORC2_CODEGEN "Does the repo have generated artifacts or migrations a merge cannot update?" no \
+  ask_choice ZENCHAIN_CODEGEN "Does the repo have generated artifacts or migrations a merge cannot update?" no \
     "no  — nothing generated; a merge is complete on its own" \
     "yes — types, clients, or ordered migration barrels must be regenerated after every merge"
-  if [[ "$ORC2_CODEGEN" == yes ]]; then
-    ask ORC2_CODEGEN_CMD  "Command that regenerates them" "npm run generate:types"
-    ask ORC2_MIGRATE_CMD  "Command that applies pending migrations (blank if none)" ""
-    ask ORC2_MIGRATE_STATUS_CMD "Command that lists pending migrations (blank if none)" ""
-    ask ORC2_GENERATED_PATHS "Generated paths that must be regenerated rather than hand-merged" "src/generated/"
+  if [[ "$ZENCHAIN_CODEGEN" == yes ]]; then
+    ask ZENCHAIN_CODEGEN_CMD  "Command that regenerates them" "npm run generate:types"
+    ask ZENCHAIN_MIGRATE_CMD  "Command that applies pending migrations (blank if none)" ""
+    ask ZENCHAIN_MIGRATE_STATUS_CMD "Command that lists pending migrations (blank if none)" ""
+    ask ZENCHAIN_GENERATED_PATHS "Generated paths that must be regenerated rather than hand-merged" "src/generated/"
   fi
 
-  ask_choice ORC2_NOTIFY "How is the human told a run reached its checkpoint?" none \
+  ask_choice ZENCHAIN_NOTIFY "How is the human told a run reached its checkpoint?" none \
     "none  — the terminal report only" \
     "slack — one message per run to a Slack Incoming Webhook" \
     "push  — one push notification per run"
-  if [[ "$ORC2_NOTIFY" == slack ]]; then
-    ask ORC2_SLACK_ENV     "Env var holding the webhook URL" "SLACK_WEBHOOK_URL"
-    ask ORC2_SLACK_CHANNEL "Channel the webhook is bound to" "#${ORC2_PROJECT}"
-    ask ORC2_SLACK_MENTION "Slack member id to mention, e.g. U01ABCDEF (blank for none)" ""
+  if [[ "$ZENCHAIN_NOTIFY" == slack ]]; then
+    ask ZENCHAIN_SLACK_ENV     "Env var holding the webhook URL" "SLACK_WEBHOOK_URL"
+    ask ZENCHAIN_SLACK_CHANNEL "Channel the webhook is bound to" "#${ZENCHAIN_PROJECT}"
+    ask ZENCHAIN_SLACK_MENTION "Slack member id to mention, e.g. U01ABCDEF (blank for none)" ""
   fi
 
   head2 "Policy"
-  ask ORC2_ROUND_CAP "Review→fix rounds per issue before escalating" "3"
-  ask ORC2_A11Y "Accessibility target the reference may not override" "WCAG 2.2 AA"
-  ask ORC2_BUILD_ORDER "PRD build order, blank if you have no fixed order" ""
-  ask ORC2_PIPELINE_DIR "Where ORCHESTRATOR.md is written (relative to the repo)" ".orc2"
+  ask ZENCHAIN_ROUND_CAP "Review→fix rounds per issue before escalating" "3"
+  ask ZENCHAIN_A11Y "Accessibility target the reference may not override" "WCAG 2.2 AA"
+  ask ZENCHAIN_BUILD_ORDER "PRD build order, blank if you have no fixed order" ""
+  ask ZENCHAIN_PIPELINE_DIR "Where ORCHESTRATOR.md is written (relative to the repo)" ".zenchain"
 }
 
 # ------------------------------------------------------------- skill fetch ---
@@ -232,7 +232,7 @@ interview() {
 # by an agent, so citing one in a role prompt is a dangling reference. `implement`
 # is the exception — upstream marks it user-only, and the patch below strips that
 # so the implementer can reach it. The rest are model-invocable as shipped.
-ORC2_SKILLS_SET="code-review diagnosing-bugs tdd research prototype codebase-design domain-modeling resolving-merge-conflicts implement"
+ZENCHAIN_SKILLS_SET="code-review diagnosing-bugs tdd research prototype codebase-design domain-modeling resolving-merge-conflicts implement"
 PATCH_INVOCABLE="implement"
 
 # The planning half, which a HUMAN runs before the pipeline has anything to build.
@@ -243,7 +243,7 @@ PATCH_INVOCABLE="implement"
 # `grilling` is here because `grill-with-docs` is a two-line skill whose body is
 # "Run a /grilling session" — vendoring the one without the other installs a
 # pointer to nothing.
-ORC2_SKILLS_FRONTEND="grill-with-docs grilling to-spec to-tickets triage wayfinder handoff"
+ZENCHAIN_SKILLS_FRONTEND="grill-with-docs grilling to-spec to-tickets triage wayfinder handoff"
 
 # Upstream files these under several category directories, and the front-end set
 # spans two of them. Search rather than hardcode `engineering`.
@@ -254,7 +254,7 @@ SKILL_CATEGORIES="engineering productivity misc in-progress"
 # UTF-8 in these files unless the locale happens to be right.
 strip_useronly() { # strip_useronly <file>
   local f="$1" t
-  t="$(mktemp -t orc2-skill.XXXXXX)"
+  t="$(mktemp -t zenchain-skill.XXXXXX)"
   grep -v '^disable-model-invocation: true$' "$f" >"$t" && mv "$t" "$f" || rm -f "$t"
 }
 
@@ -267,9 +267,9 @@ resolve_pin() { # resolve_pin [ref]
   # The FULL ref path, not a bare name: `ls-remote <url> main` matches by suffix
   # and returns `refs/heads/changeset-release/main` ahead of `refs/heads/main`,
   # so taking the first line silently pins a release bot's branch.
-  sha="$(git ls-remote "https://github.com/${ORC2_SKILLS_REPO}.git" "refs/heads/${ref}" 2>/dev/null | awk '$2=="refs/heads/'"$ref"'"{print $1; exit}' || true)"
+  sha="$(git ls-remote "https://github.com/${ZENCHAIN_SKILLS_REPO}.git" "refs/heads/${ref}" 2>/dev/null | awk '$2=="refs/heads/'"$ref"'"{print $1; exit}' || true)"
   if [[ ! "$sha" =~ ^[a-f0-9]{40}$ ]]; then
-    sha="$( { curl -fsS -m 15 "https://api.github.com/repos/${ORC2_SKILLS_REPO}/commits/${ref}" 2>/dev/null || true; } \
+    sha="$( { curl -fsS -m 15 "https://api.github.com/repos/${ZENCHAIN_SKILLS_REPO}/commits/${ref}" 2>/dev/null || true; } \
       | sed -n 's/^  "sha": "\([a-f0-9]\{40\}\)".*/\1/p' | head -1 || true)"
   fi
   [[ "$sha" =~ ^[a-f0-9]{40}$ ]] && printf '%s' "$sha"
@@ -278,24 +278,24 @@ resolve_pin() { # resolve_pin [ref]
 
 fetch_skills() { # fetch_skills <dest-dir>
   local dest="$1" sha tmp s got=0
-  sha="$ORC2_SKILLS_PIN"
+  sha="$ZENCHAIN_SKILLS_PIN"
   if [[ -z "$sha" || "$sha" == main ]]; then
     sha="$(resolve_pin main || true)"
-    [[ -n "$sha" ]] || { say "  ! cannot reach github to pin ${ORC2_SKILLS_REPO} — skipping skill fetch."
+    [[ -n "$sha" ]] || { say "  ! cannot reach github to pin ${ZENCHAIN_SKILLS_REPO} — skipping skill fetch."
                          say "    The role prompts cite these skills; install them by hand or re-run \`zen render\` online."
                          return 0; }
-    say "  pinned ${ORC2_SKILLS_REPO} at ${sha:0:12}"
+    say "  pinned ${ZENCHAIN_SKILLS_REPO} at ${sha:0:12}"
   fi
-  export ORC2_SKILLS_PIN="$sha"
+  export ZENCHAIN_SKILLS_PIN="$sha"
 
   # Cache by sha: a pinned commit's tarball never changes, so re-renders and
   # extra lanes cost nothing and work offline once fetched.
-  local cache="${XDG_CACHE_HOME:-$HOME/.cache}/orc2"
+  local cache="${XDG_CACHE_HOME:-$HOME/.cache}/zenchain"
   mkdir -p "$cache"
-  tmp="$cache/${ORC2_SKILLS_REPO//\//-}-${sha}.tgz"
+  tmp="$cache/${ZENCHAIN_SKILLS_REPO//\//-}-${sha}.tgz"
   if [[ ! -s "$tmp" ]]; then
-    if ! curl -fsSL -m 60 "https://codeload.github.com/${ORC2_SKILLS_REPO}/tar.gz/${sha}" -o "$tmp.part" 2>/dev/null; then
-      say "  ! download failed for ${ORC2_SKILLS_REPO}@${sha:0:12} — skipping skill fetch"
+    if ! curl -fsSL -m 60 "https://codeload.github.com/${ZENCHAIN_SKILLS_REPO}/tar.gz/${sha}" -o "$tmp.part" 2>/dev/null; then
+      say "  ! download failed for ${ZENCHAIN_SKILLS_REPO}@${sha:0:12} — skipping skill fetch"
       rm -f "$tmp.part"; return 0
     fi
     mv "$tmp.part" "$tmp"
@@ -303,7 +303,7 @@ fetch_skills() { # fetch_skills <dest-dir>
 
   mkdir -p "$dest"
   local skipped=0
-  for s in $ORC2_SKILLS_SET; do
+  for s in $ZENCHAIN_SKILLS_SET; do
     if extract_skill "$tmp" "$sha" "$s" "$dest"; then
       got=$((got + 1))
       # A user-only skill cannot be invoked by an agent. Strip the flag on the
@@ -311,20 +311,20 @@ fetch_skills() { # fetch_skills <dest-dir>
       case " $PATCH_INVOCABLE " in *" $s "*)
         if grep -q '^disable-model-invocation: true' "$dest/$s/SKILL.md" 2>/dev/null; then
           strip_useronly "$dest/$s/SKILL.md"
-          printf '\n<!-- orc2: upstream ships this skill as user-only (`disable-model-invocation: true`).\n     That flag is stripped here because a pipeline role must invoke it. -->\n' \
+          printf '\n<!-- zenchain: upstream ships this skill as user-only (`disable-model-invocation: true`).\n     That flag is stripped here because a pipeline role must invoke it. -->\n' \
             >>"$dest/$s/SKILL.md"
           say "  patched $s (was user-only; a role must invoke it)"
         fi ;;
       esac
     else
-      say "  ! $s not found in ${ORC2_SKILLS_REPO}@${sha:0:12}"
+      say "  ! $s not found in ${ZENCHAIN_SKILLS_REPO}@${sha:0:12}"
     fi
   done
 
   # The planning skills a human runs. Vendor one ONLY when it is not already
   # installed globally — a local duplicate would shadow the user's own copy and
   # then quietly go stale against it.
-  for s in $ORC2_SKILLS_FRONTEND; do
+  for s in $ZENCHAIN_SKILLS_FRONTEND; do
     if [[ -d "$UPSTREAM_SKILLS/$s" ]]; then
       rm -rf "$dest/$s"     # a copy from an earlier run is now redundant
       skipped=$((skipped + 1)); continue
@@ -332,7 +332,7 @@ fetch_skills() { # fetch_skills <dest-dir>
     if extract_skill "$tmp" "$sha" "$s" "$dest"; then
       got=$((got + 1))
     else
-      say "  ! planning skill $s not found in ${ORC2_SKILLS_REPO}@${sha:0:12}"
+      say "  ! planning skill $s not found in ${ZENCHAIN_SKILLS_REPO}@${sha:0:12}"
     fi
   done
 
@@ -349,7 +349,7 @@ extract_skill() { # extract_skill <tarball> <sha> <name> <dest>
   for cat in $SKILL_CATEGORIES; do
     # Codeload unpacks under <repo-name>-<sha>/, not a fixed "skills-<sha>/".
     if tar -xzf "$tarball" -C "$dest" --strip-components=3 \
-         "${ORC2_SKILLS_REPO##*/}-$sha/skills/$cat/$s" 2>/dev/null; then
+         "${ZENCHAIN_SKILLS_REPO##*/}-$sha/skills/$cat/$s" 2>/dev/null; then
       return 0
     fi
   done
@@ -361,19 +361,19 @@ extract_skill() { # extract_skill <tarball> <sha> <name> <dest>
 # Derived values the templates use directly.
 derive() {
   # Optional answers default before anything reads them.
-  : "${ORC2_DB:=none}" "${ORC2_CODEGEN:=no}" "${ORC2_LANES:=1}" "${ORC2_ROUND_CAP:=3}"
-  # ORC2_DB was yes/no before the engine choice existed; keep old configs working.
-  [[ "$ORC2_DB" == yes ]] && ORC2_DB=postgres
-  [[ "$ORC2_DB" == no  ]] && ORC2_DB=none
-  : "${ORC2_DESIGN:=none}" "${ORC2_TRACKER:=scratch}" "${ORC2_NOTIFY:=none}"
-  : "${ORC2_RUNNER:=claude}" "${ORC2_RUNNER_MECH:=$ORC2_RUNNER}"
-  : "${ORC2_MAIN_BRANCH:=main}" "${ORC2_WORKTREE_DIR:=.worktrees}" "${ORC2_PIPELINE_DIR:=.orc2}"
-  : "${ORC2_A11Y:=WCAG 2.2 AA}" "${ORC2_PROJECT:=$(basename "$TARGET")}"
-  : "${ORC2_MODEL_BUILD:=}" "${ORC2_MODEL_JUDGE:=}" "${ORC2_MODEL_GATE:=}" "${ORC2_MODEL_SCAN:=}"
-  : "${ORC2_FIGMA_FILE_KEY:=}" "${ORC2_FIGMA_ROOT_NODE:=}" "${ORC2_LOFI_DIR:=design/lofi}"
-  : "${ORC2_DB_URI_VAR:=DATABASE_URI}"
+  : "${ZENCHAIN_DB:=none}" "${ZENCHAIN_CODEGEN:=no}" "${ZENCHAIN_LANES:=1}" "${ZENCHAIN_ROUND_CAP:=3}"
+  # ZENCHAIN_DB was yes/no before the engine choice existed; keep old configs working.
+  [[ "$ZENCHAIN_DB" == yes ]] && ZENCHAIN_DB=postgres
+  [[ "$ZENCHAIN_DB" == no  ]] && ZENCHAIN_DB=none
+  : "${ZENCHAIN_DESIGN:=none}" "${ZENCHAIN_TRACKER:=scratch}" "${ZENCHAIN_NOTIFY:=none}"
+  : "${ZENCHAIN_RUNNER:=claude}" "${ZENCHAIN_RUNNER_MECH:=$ZENCHAIN_RUNNER}"
+  : "${ZENCHAIN_MAIN_BRANCH:=main}" "${ZENCHAIN_WORKTREE_DIR:=.worktrees}" "${ZENCHAIN_PIPELINE_DIR:=.zenchain}"
+  : "${ZENCHAIN_A11Y:=WCAG 2.2 AA}" "${ZENCHAIN_PROJECT:=$(basename "$TARGET")}"
+  : "${ZENCHAIN_MODEL_BUILD:=}" "${ZENCHAIN_MODEL_JUDGE:=}" "${ZENCHAIN_MODEL_GATE:=}" "${ZENCHAIN_MODEL_SCAN:=}"
+  : "${ZENCHAIN_FIGMA_FILE_KEY:=}" "${ZENCHAIN_FIGMA_ROOT_NODE:=}" "${ZENCHAIN_LOFI_DIR:=design/lofi}"
+  : "${ZENCHAIN_DB_URI_VAR:=DATABASE_URI}"
   # Engine-dependent values default FROM the project name, never to empty. An
-  # empty ORC2_LANE_PREFIX renders a drop guard reading "only if its name begins
+  # empty ZENCHAIN_LANE_PREFIX renders a drop guard reading "only if its name begins
   # ``", which matches every database including the human's — so the two values
   # the guard depends on are also hard-checked below.
   # A PostgreSQL identifier is only safe unquoted as [a-z_][a-z0-9_]*. A dash
@@ -381,43 +381,43 @@ derive() {
   # `DROP DATABASE my-app_lane_x` is a syntax error — so provisioning works and
   # teardown breaks. Slugify the default so nobody meets that by accident. File
   # paths have no such rule, so SQLite keeps the name as typed.
-  export ORC2_DB_SLUG="$(printf '%s' "$ORC2_PROJECT" | tr '[:upper:]' '[:lower:]' \
+  export ZENCHAIN_DB_SLUG="$(printf '%s' "$ZENCHAIN_PROJECT" | tr '[:upper:]' '[:lower:]' \
     | sed 's/[^a-z0-9]\{1,\}/_/g; s/^_\{1,\}//; s/_\{1,\}$//; s/^\([0-9]\)/db_\1/')"
-  : "${ORC2_DB_SLUG:=app}"
-  case "$ORC2_DB" in
-    postgres) : "${ORC2_DEV_DB:=${ORC2_DB_SLUG}_dev}"      "${ORC2_LANE_PREFIX:=${ORC2_DB_SLUG}_lane_}" ;;
-    sqlite)   : "${ORC2_DEV_DB:=data/${ORC2_PROJECT}.db}"  "${ORC2_LANE_PREFIX:=data/lane-}" ;;
-    *)        : "${ORC2_DEV_DB:=}" "${ORC2_LANE_PREFIX:=}" ;;
+  : "${ZENCHAIN_DB_SLUG:=app}"
+  case "$ZENCHAIN_DB" in
+    postgres) : "${ZENCHAIN_DEV_DB:=${ZENCHAIN_DB_SLUG}_dev}"      "${ZENCHAIN_LANE_PREFIX:=${ZENCHAIN_DB_SLUG}_lane_}" ;;
+    sqlite)   : "${ZENCHAIN_DEV_DB:=data/${ZENCHAIN_PROJECT}.db}"  "${ZENCHAIN_LANE_PREFIX:=data/lane-}" ;;
+    *)        : "${ZENCHAIN_DEV_DB:=}" "${ZENCHAIN_LANE_PREFIX:=}" ;;
   esac
   # `:=` above already repairs an explicitly-empty value, so the two emptiness
   # checks are asserts guarding a future edit to that defaulting, not the primary
   # defence. The overlap check is the one that fires on real input.
-  if [[ "$ORC2_DB" != none ]]; then
-    [[ -n "$ORC2_LANE_PREFIX" ]] || { say "zen: ORC2_LANE_PREFIX is empty with ORC2_DB=$ORC2_DB. That renders a drop guard matching EVERY database. Set it and re-run." >&2; exit 2; }
-    [[ -n "$ORC2_DEV_DB"      ]] || { say "zen: ORC2_DEV_DB is empty with ORC2_DB=$ORC2_DB. The pipeline cannot name the database it must never touch. Set it and re-run." >&2; exit 2; }
-    [[ "$ORC2_DEV_DB" == "$ORC2_LANE_PREFIX"* ]] && { say "zen: ORC2_DEV_DB ('$ORC2_DEV_DB') starts with ORC2_LANE_PREFIX ('$ORC2_LANE_PREFIX'), so the development database matches the lane drop guard. Choose a prefix that cannot match it." >&2; exit 2; }
+  if [[ "$ZENCHAIN_DB" != none ]]; then
+    [[ -n "$ZENCHAIN_LANE_PREFIX" ]] || { say "zen: ZENCHAIN_LANE_PREFIX is empty with ZENCHAIN_DB=$ZENCHAIN_DB. That renders a drop guard matching EVERY database. Set it and re-run." >&2; exit 2; }
+    [[ -n "$ZENCHAIN_DEV_DB"      ]] || { say "zen: ZENCHAIN_DEV_DB is empty with ZENCHAIN_DB=$ZENCHAIN_DB. The pipeline cannot name the database it must never touch. Set it and re-run." >&2; exit 2; }
+    [[ "$ZENCHAIN_DEV_DB" == "$ZENCHAIN_LANE_PREFIX"* ]] && { say "zen: ZENCHAIN_DEV_DB ('$ZENCHAIN_DEV_DB') starts with ZENCHAIN_LANE_PREFIX ('$ZENCHAIN_LANE_PREFIX'), so the development database matches the lane drop guard. Choose a prefix that cannot match it." >&2; exit 2; }
   fi
-  : "${ORC2_CODEGEN_CMD:=}" "${ORC2_MIGRATE_CMD:=}" "${ORC2_MIGRATE_STATUS_CMD:=}" "${ORC2_GENERATED_PATHS:=}"
-  : "${ORC2_SLACK_MENTION:=}" "${ORC2_BUILD_ORDER:=}"
-  if [[ "$ORC2_NOTIFY" == slack ]]; then
-    : "${ORC2_SLACK_ENV:=SLACK_WEBHOOK_URL}" "${ORC2_SLACK_CHANNEL:=#${ORC2_PROJECT}}"
+  : "${ZENCHAIN_CODEGEN_CMD:=}" "${ZENCHAIN_MIGRATE_CMD:=}" "${ZENCHAIN_MIGRATE_STATUS_CMD:=}" "${ZENCHAIN_GENERATED_PATHS:=}"
+  : "${ZENCHAIN_SLACK_MENTION:=}" "${ZENCHAIN_BUILD_ORDER:=}"
+  if [[ "$ZENCHAIN_NOTIFY" == slack ]]; then
+    : "${ZENCHAIN_SLACK_ENV:=SLACK_WEBHOOK_URL}" "${ZENCHAIN_SLACK_CHANNEL:=#${ZENCHAIN_PROJECT}}"
   else
-    : "${ORC2_SLACK_ENV:=}" "${ORC2_SLACK_CHANNEL:=}"
+    : "${ZENCHAIN_SLACK_ENV:=}" "${ZENCHAIN_SLACK_CHANNEL:=}"
   fi
-  : "${ORC2_GATE:=$(detect_gate)}" "${ORC2_ANTI_SLOP:=enforced}"
-  : "${ORC2_SKILLS_REPO:=mattpocock/skills}" "${ORC2_SKILLS_PIN:=}" "${ORC2_AGENTS_FILE:=}"
-  export ORC2_SKILLS_REPO ORC2_SKILLS_PIN ORC2_AGENTS_FILE
-  export ORC2_DB ORC2_CODEGEN ORC2_LANES ORC2_ROUND_CAP ORC2_DESIGN ORC2_TRACKER ORC2_NOTIFY \
-         ORC2_RUNNER ORC2_RUNNER_MECH ORC2_MAIN_BRANCH ORC2_WORKTREE_DIR ORC2_PIPELINE_DIR \
-         ORC2_A11Y ORC2_PROJECT ORC2_MODEL_BUILD ORC2_MODEL_JUDGE ORC2_MODEL_GATE ORC2_MODEL_SCAN \
-         ORC2_FIGMA_FILE_KEY ORC2_FIGMA_ROOT_NODE ORC2_LOFI_DIR ORC2_DEV_DB ORC2_LANE_PREFIX \
-         ORC2_DB_URI_VAR ORC2_CODEGEN_CMD ORC2_MIGRATE_CMD ORC2_MIGRATE_STATUS_CMD \
-         ORC2_GENERATED_PATHS ORC2_SLACK_ENV ORC2_SLACK_CHANNEL ORC2_SLACK_MENTION \
-         ORC2_BUILD_ORDER ORC2_GATE ORC2_ANTI_SLOP
+  : "${ZENCHAIN_GATE:=$(detect_gate)}" "${ZENCHAIN_ANTI_SLOP:=enforced}"
+  : "${ZENCHAIN_SKILLS_REPO:=mattpocock/skills}" "${ZENCHAIN_SKILLS_PIN:=}" "${ZENCHAIN_AGENTS_FILE:=}"
+  export ZENCHAIN_SKILLS_REPO ZENCHAIN_SKILLS_PIN ZENCHAIN_AGENTS_FILE
+  export ZENCHAIN_DB ZENCHAIN_CODEGEN ZENCHAIN_LANES ZENCHAIN_ROUND_CAP ZENCHAIN_DESIGN ZENCHAIN_TRACKER ZENCHAIN_NOTIFY \
+         ZENCHAIN_RUNNER ZENCHAIN_RUNNER_MECH ZENCHAIN_MAIN_BRANCH ZENCHAIN_WORKTREE_DIR ZENCHAIN_PIPELINE_DIR \
+         ZENCHAIN_A11Y ZENCHAIN_PROJECT ZENCHAIN_MODEL_BUILD ZENCHAIN_MODEL_JUDGE ZENCHAIN_MODEL_GATE ZENCHAIN_MODEL_SCAN \
+         ZENCHAIN_FIGMA_FILE_KEY ZENCHAIN_FIGMA_ROOT_NODE ZENCHAIN_LOFI_DIR ZENCHAIN_DEV_DB ZENCHAIN_LANE_PREFIX \
+         ZENCHAIN_DB_URI_VAR ZENCHAIN_CODEGEN_CMD ZENCHAIN_MIGRATE_CMD ZENCHAIN_MIGRATE_STATUS_CMD \
+         ZENCHAIN_GENERATED_PATHS ZENCHAIN_SLACK_ENV ZENCHAIN_SLACK_CHANNEL ZENCHAIN_SLACK_MENTION \
+         ZENCHAIN_BUILD_ORDER ZENCHAIN_GATE ZENCHAIN_ANTI_SLOP
 
-  local gate_commands="$ORC2_GATE"
-  [[ "$ORC2_ANTI_SLOP" == enforced ]] \
-    && gate_commands=".orc2/bin/orc2-anti-slop-check;$gate_commands"
+  local gate_commands="$ZENCHAIN_GATE"
+  [[ "$ZENCHAIN_ANTI_SLOP" == enforced ]] \
+    && gate_commands=".zenchain/bin/zenchain-anti-slop-check;$gate_commands"
   local IFS=';' c out_list="" out_block=""
   read -ra CMDS <<<"$gate_commands"
   for c in "${CMDS[@]}"; do
@@ -425,100 +425,100 @@ derive() {
     out_list+="\`$c\`, "
     out_block+="$c"$'\n'
   done
-  export ORC2_GATE_LIST="${out_list%, }"
-  export ORC2_GATE_BLOCK="${out_block%$'\n'}"
-  export ORC2_GATE_FIRST="$(echo "${CMDS[0]}" | sed 's/^ *//;s/ *$//')"
+  export ZENCHAIN_GATE_LIST="${out_list%, }"
+  export ZENCHAIN_GATE_BLOCK="${out_block%$'\n'}"
+  export ZENCHAIN_GATE_FIRST="$(echo "${CMDS[0]}" | sed 's/^ *//;s/ *$//')"
 
-  case "$ORC2_TRACKER" in
-    scratch) export ORC2_ISSUE_GLOB=".scratch/<feature-slug>/issues/<NN>-<slug>.md"
-             export ORC2_ISSUE_ROOT=".scratch"
-             export ORC2_STATUS_MECH="the \`Status:\` line in the issue file"
-             export ORC2_TRACKER_ONE_LINER="Local markdown — issues and PRDs live under \`.scratch/<feature-slug>/\`; no \`gh\`, no remote."
-             export ORC2_TICKET_CHECK_CMD='.orc2/bin/orc2-ticket-check "$ISSUE_PATH"' ;;
-    github)  export ORC2_ISSUE_GLOB="GitHub issue #<N>"
-             export ORC2_ISSUE_ROOT="the tracker"
-             export ORC2_STATUS_MECH="the issue's labels"
-             export ORC2_TRACKER_ONE_LINER="GitHub Issues, driven with the \`gh\` CLI."
-             export ORC2_TICKET_CHECK_CMD='gh issue view "$ISSUE_NUMBER" --json body --jq .body | .orc2/bin/orc2-ticket-check -' ;;
+  case "$ZENCHAIN_TRACKER" in
+    scratch) export ZENCHAIN_ISSUE_GLOB=".scratch/<feature-slug>/issues/<NN>-<slug>.md"
+             export ZENCHAIN_ISSUE_ROOT=".scratch"
+             export ZENCHAIN_STATUS_MECH="the \`Status:\` line in the issue file"
+             export ZENCHAIN_TRACKER_ONE_LINER="Local markdown — issues and PRDs live under \`.scratch/<feature-slug>/\`; no \`gh\`, no remote."
+             export ZENCHAIN_TICKET_CHECK_CMD='.zenchain/bin/zenchain-ticket-check "$ISSUE_PATH"' ;;
+    github)  export ZENCHAIN_ISSUE_GLOB="GitHub issue #<N>"
+             export ZENCHAIN_ISSUE_ROOT="the tracker"
+             export ZENCHAIN_STATUS_MECH="the issue's labels"
+             export ZENCHAIN_TRACKER_ONE_LINER="GitHub Issues, driven with the \`gh\` CLI."
+             export ZENCHAIN_TICKET_CHECK_CMD='gh issue view "$ISSUE_NUMBER" --json body --jq .body | .zenchain/bin/zenchain-ticket-check -' ;;
   esac
 
-  export ORC2_LANES_MODE="$([[ "$ORC2_LANES" == 1 ]] && echo off || echo on)"
-  export ORC2_REF_DIR="$([[ "$ORC2_TRACKER" == scratch ]] && echo '.scratch/<prd>/reference' || echo 'docs/reference/<prd>')"
+  export ZENCHAIN_LANES_MODE="$([[ "$ZENCHAIN_LANES" == 1 ]] && echo off || echo on)"
+  export ZENCHAIN_REF_DIR="$([[ "$ZENCHAIN_TRACKER" == scratch ]] && echo '.scratch/<prd>/reference' || echo 'docs/reference/<prd>')"
   # A blank model id means "whatever the backend is configured to use". The
   # bridge treats `inherit` as unset, and Claude Code accepts it natively.
-  [[ -z "$ORC2_MODEL_BUILD" ]] && export ORC2_MODEL_BUILD=inherit
-  [[ -z "$ORC2_MODEL_JUDGE" ]] && export ORC2_MODEL_JUDGE=inherit
-  [[ -z "$ORC2_MODEL_GATE"  ]] && export ORC2_MODEL_GATE=inherit
-  [[ -z "$ORC2_MODEL_SCAN"  ]] && export ORC2_MODEL_SCAN=inherit
+  [[ -z "$ZENCHAIN_MODEL_BUILD" ]] && export ZENCHAIN_MODEL_BUILD=inherit
+  [[ -z "$ZENCHAIN_MODEL_JUDGE" ]] && export ZENCHAIN_MODEL_JUDGE=inherit
+  [[ -z "$ZENCHAIN_MODEL_GATE"  ]] && export ZENCHAIN_MODEL_GATE=inherit
+  [[ -z "$ZENCHAIN_MODEL_SCAN"  ]] && export ZENCHAIN_MODEL_SCAN=inherit
 
   # Can the backend running the implementer discover a skill by name?
-  export ORC2_SKILLS_MODE="$([[ "$ORC2_RUNNER_MECH" == claude ]] && echo native || echo vendored)"
-  # Where skills actually land — keyed off ORC2_RUNNER, because that is what
+  export ZENCHAIN_SKILLS_MODE="$([[ "$ZENCHAIN_RUNNER_MECH" == claude ]] && echo native || echo vendored)"
+  # Where skills actually land — keyed off ZENCHAIN_RUNNER, because that is what
   # do_render keys SKILLDIR off. The vendored-path fragment must cite this and
   # not a guess: runner=claude + mech=pi puts skills in .claude/skills while the
-  # fragment used to name .orc2/skills, so every cited path dangled.
-  export ORC2_SKILLS_DIR="$([[ "$ORC2_RUNNER" == claude ]] && echo ".claude/skills" || echo ".orc2/skills")"
+  # fragment used to name .zenchain/skills, so every cited path dangled.
+  export ZENCHAIN_SKILLS_DIR="$([[ "$ZENCHAIN_RUNNER" == claude ]] && echo ".claude/skills" || echo ".zenchain/skills")"
   # How a role reaches a skill named as `/name`. On a backend with no skill
   # mechanism the name alone is a dangling reference, so cite the vendored path.
-  if [[ "$ORC2_SKILLS_MODE" == native ]]; then
-    export ORC2_SKILL_HOW="Skills named below as \`/name\` are invocable directly."
+  if [[ "$ZENCHAIN_SKILLS_MODE" == native ]]; then
+    export ZENCHAIN_SKILL_HOW="Skills named below as \`/name\` are invocable directly."
   else
-    export ORC2_SKILL_HOW="Your backend has no skill mechanism, so a skill named below as \`/name\` is a **file to read**, at \`$ORC2_SKILLS_DIR/<name>/SKILL.md\`. Read it before acting on the instruction that cites it; if it is missing, say so in your report rather than improvising the procedure and calling it followed."
+    export ZENCHAIN_SKILL_HOW="Your backend has no skill mechanism, so a skill named below as \`/name\` is a **file to read**, at \`$ZENCHAIN_SKILLS_DIR/<name>/SKILL.md\`. Read it before acting on the instruction that cites it; if it is missing, say so in your report rather than improvising the procedure and calling it followed."
   fi
   # How a role reaches `explorer`. Native subagent, or the bridge — the role
   # prompts say "spawn the explorer", which is unactionable on a backend that
   # has no subagent mechanism unless it is told the command.
-  if [[ "$ORC2_RUNNER_MECH" == claude ]]; then
-    export ORC2_EXPLORER_HOW="Spawn the \`explorer\` subagent with the \`Agent\` tool."
+  if [[ "$ZENCHAIN_RUNNER_MECH" == claude ]]; then
+    export ZENCHAIN_EXPLORER_HOW="Spawn the \`explorer\` subagent with the \`Agent\` tool."
   else
-    export ORC2_EXPLORER_HOW="Run \`.orc2/bin/orc2-agent explorer \"<one bounded question>\"\` with the shell — this backend has no subagent mechanism, so that command IS the explorer."
+    export ZENCHAIN_EXPLORER_HOW="Run \`.zenchain/bin/zenchain-agent explorer \"<one bounded question>\"\` with the shell — this backend has no subagent mechanism, so that command IS the explorer."
   fi
 
   # Which roles run outside the orchestrator's own CLI.
-  if   [[ "$ORC2_RUNNER" != claude ]];      then export ORC2_DELEGATION="bridge-all"
-  elif [[ "$ORC2_RUNNER_MECH" != claude ]]; then export ORC2_DELEGATION="bridge-mech"
-  else                                          export ORC2_DELEGATION="native"; fi
+  if   [[ "$ZENCHAIN_RUNNER" != claude ]];      then export ZENCHAIN_DELEGATION="bridge-all"
+  elif [[ "$ZENCHAIN_RUNNER_MECH" != claude ]]; then export ZENCHAIN_DELEGATION="bridge-mech"
+  else                                          export ZENCHAIN_DELEGATION="native"; fi
 
-  if [[ "$ORC2_LANES" == 1 ]]; then
-    export ORC2_LANES_SELECT_SUFFIX=""
-    export ORC2_LANES_PRD_CLAUSE="Run one issue at a time, start to merge, before selecting the next."
+  if [[ "$ZENCHAIN_LANES" == 1 ]]; then
+    export ZENCHAIN_LANES_SELECT_SUFFIX=""
+    export ZENCHAIN_LANES_PRD_CLAUSE="Run one issue at a time, start to merge, before selecting the next."
   else
-    export ORC2_LANES_SELECT_SUFFIX=", then optionally a second under the pairing rules above"
-    export ORC2_LANES_PRD_CLAUSE="Two is a cap, not a target. Pair by change surface — two issues that edit the same file are not parallel work, however independent their dependencies look. Compare their \`## Relevant files\` before pairing."
+    export ZENCHAIN_LANES_SELECT_SUFFIX=", then optionally a second under the pairing rules above"
+    export ZENCHAIN_LANES_PRD_CLAUSE="Two is a cap, not a target. Pair by change surface — two issues that edit the same file are not parallel work, however independent their dependencies look. Compare their \`## Relevant files\` before pairing."
   fi
 
-  export ORC2_BUILD_ORDER_LINE="${ORC2_BUILD_ORDER:-no fixed order is recorded; take dependencies from each issue.}"
-  export ORC2_QA_REF_ARG="$([[ "$ORC2_DESIGN" == none ]] && echo "" || echo " and the reference directory")"
-  case "$ORC2_DB" in
-    postgres) export ORC2_DB_RELEASE_CLAUSE=", drop the lane's database — **only if its name begins \`$ORC2_LANE_PREFIX\`**"
+  export ZENCHAIN_BUILD_ORDER_LINE="${ZENCHAIN_BUILD_ORDER:-no fixed order is recorded; take dependencies from each issue.}"
+  export ZENCHAIN_QA_REF_ARG="$([[ "$ZENCHAIN_DESIGN" == none ]] && echo "" || echo " and the reference directory")"
+  case "$ZENCHAIN_DB" in
+    postgres) export ZENCHAIN_DB_RELEASE_CLAUSE=", drop the lane's database — **only if its name begins \`$ZENCHAIN_LANE_PREFIX\`**"
               ;;
-    sqlite)   export ORC2_DB_RELEASE_CLAUSE=", delete the lane's database file — **only if its path begins \`$ORC2_LANE_PREFIX\`**"
+    sqlite)   export ZENCHAIN_DB_RELEASE_CLAUSE=", delete the lane's database file — **only if its path begins \`$ZENCHAIN_LANE_PREFIX\`**"
               ;;
-    *)        export ORC2_DB_RELEASE_CLAUSE=""
+    *)        export ZENCHAIN_DB_RELEASE_CLAUSE=""
               ;;
   esac
-  export ORC2_IMPL_PR_CLAUSE="$([[ "$ORC2_TRACKER" == github ]] \
+  export ZENCHAIN_IMPL_PR_CLAUSE="$([[ "$ZENCHAIN_TRACKER" == github ]] \
     && echo "The \`implement\` skill's PR-and-CI closeout is the orchestrator's job, not yours — do not run \`gh\`." \
     || echo "The \`implement\` skill requires opening a pull request and polling CI before closeout. This repository has no remote and no CI. Do not run \`gh\`.")"
-  export ORC2_FIGMA_ROOT_CLAUSE="$([[ -n "$ORC2_FIGMA_ROOT_NODE" ]] && echo ", root frame \`$ORC2_FIGMA_ROOT_NODE\`" || echo "")"
-  export ORC2_SLACK_MENTION_CLAUSE="$([[ -n "$ORC2_SLACK_MENTION" ]] && echo ", opening the text with a mention of the human (\`<@$ORC2_SLACK_MENTION>\`)" || echo "")"
-  export ORC2_MENTION_LINE="$([[ -n "$ORC2_SLACK_MENTION" ]] && echo "<@$ORC2_SLACK_MENTION>" || echo "")"
+  export ZENCHAIN_FIGMA_ROOT_CLAUSE="$([[ -n "$ZENCHAIN_FIGMA_ROOT_NODE" ]] && echo ", root frame \`$ZENCHAIN_FIGMA_ROOT_NODE\`" || echo "")"
+  export ZENCHAIN_SLACK_MENTION_CLAUSE="$([[ -n "$ZENCHAIN_SLACK_MENTION" ]] && echo ", opening the text with a mention of the human (\`<@$ZENCHAIN_SLACK_MENTION>\`)" || echo "")"
+  export ZENCHAIN_MENTION_LINE="$([[ -n "$ZENCHAIN_SLACK_MENTION" ]] && echo "<@$ZENCHAIN_SLACK_MENTION>" || echo "")"
 }
 
-# Expand {{VARS}}, then inline `<!-- orc2:include NAME -->` fragments, then expand again.
-expand() { perl -pe 's/\{\{(\w+)\}\}/exists $ENV{"ORC2_$1"} ? $ENV{"ORC2_$1"} : "{{$1}}"/ge' ; }
+# Expand {{VARS}}, then inline `<!-- zenchain:include NAME -->` fragments, then expand again.
+expand() { perl -pe 's/\{\{(\w+)\}\}/exists $ENV{"ZENCHAIN_$1"} ? $ENV{"ZENCHAIN_$1"} : "{{$1}}"/ge' ; }
 
 # Fragments may themselves include fragments, so this recurses. Depth is
-# bounded by ORC2_INCLUDE_DEPTH so a template that includes itself fails loudly
+# bounded by ZENCHAIN_INCLUDE_DEPTH so a template that includes itself fails loudly
 # instead of filling the disk.
 render() { # render <template-path> [depth]
   local f="$1" depth="${2:-0}" line frag
-  if (( depth > 6 )); then printf '<!-- orc2: include depth exceeded at %s -->\n' "$f"; return; fi
+  if (( depth > 6 )); then printf '<!-- zenchain: include depth exceeded at %s -->\n' "$f"; return; fi
   expand <"$f" | while IFS= read -r line; do
-    if [[ "$line" =~ ^\<!--[[:space:]]*orc2:include[[:space:]]+([A-Za-z0-9_.-]+)[[:space:]]*--\>$ ]]; then
+    if [[ "$line" =~ ^\<!--[[:space:]]*zenchain:include[[:space:]]+([A-Za-z0-9_.-]+)[[:space:]]*--\>$ ]]; then
       frag="$TPL/fragments/${BASH_REMATCH[1]}.md"
       if [[ -f "$frag" ]]; then render "$frag" $((depth+1))
-      else printf '<!-- orc2: MISSING FRAGMENT %s -->\n' "${BASH_REMATCH[1]}"; fi
+      else printf '<!-- zenchain: MISSING FRAGMENT %s -->\n' "${BASH_REMATCH[1]}"; fi
     else
       printf '%s\n' "$line"
     fi
@@ -528,11 +528,11 @@ render() { # render <template-path> [depth]
 write_out() { # write_out <template> <dest>
   local tmp
   # A missing template must not cost the human the file that is already there.
-  # `render >"$dest"` truncates before it runs, so a bad ORC2_TRACKER value used
+  # `render >"$dest"` truncates before it runs, so a bad ZENCHAIN_TRACKER value used
   # to leave the previous good file zero-byte and abort the render half-done.
-  [[ -f "$1" ]] || { say "zen: no template at ${1#$TPL/} — check the enum values in .orc2/config.env" >&2; return 1; }
+  [[ -f "$1" ]] || { say "zen: no template at ${1#$TPL/} — check the enum values in .zenchain/config.env" >&2; return 1; }
   mkdir -p "$(dirname "$2")"
-  tmp="$(mktemp -t orc2-render.XXXXXX)"
+  tmp="$(mktemp -t zenchain-render.XXXXXX)"
   if ! render "$1" >"$tmp"; then
     rm -f "$tmp"; say "zen: render failed for ${1#$TPL/}; left ${2#$TARGET/} untouched" >&2; return 1
   fi
@@ -584,19 +584,19 @@ write_preserving() { # write_preserving <dest> <src-tmp>
 }
 
 save_config() {
-  mkdir -p "$TARGET/.orc2"
+  mkdir -p "$TARGET/.zenchain"
   local v
-  { say "# ZenChain pipeline config for $ORC2_PROJECT — edit, then run: zen render"
+  { say "# ZenChain pipeline config for $ZENCHAIN_PROJECT — edit, then run: zen render"
     # printf %q so a value containing spaces, quotes, or arrows survives sourcing.
-    for v in $(env | grep '^ORC2_' | grep -vE '^ORC2_(GATE_LIST|GATE_BLOCK|GATE_COUNT|GATE_FIRST|ISSUE_GLOB|ISSUE_ROOT|STATUS_MECH|TICKET_CHECK_CMD|LANES_MODE|LANES_SELECT_SUFFIX|LANES_PRD_CLAUSE|REF_DIR|MENTION_LINE|DELEGATION|BUILD_ORDER_LINE|QA_REF_ARG|DB_RELEASE_CLAUSE|IMPL_PR_CLAUSE|FIGMA_ROOT_CLAUSE|SLACK_MENTION_CLAUSE|SKILL_HOW|EXPLORER_HOW|SKILLS_DIR|SKILLS_MODE|HOME|UPSTREAM_SKILLS|AGENT_MODEL|CODEX_APPROVAL|INCLUDE_DEPTH)=' \
+    for v in $(env | grep '^ZENCHAIN_' | grep -vE '^ZENCHAIN_(GATE_LIST|GATE_BLOCK|GATE_COUNT|GATE_FIRST|ISSUE_GLOB|ISSUE_ROOT|STATUS_MECH|TICKET_CHECK_CMD|LANES_MODE|LANES_SELECT_SUFFIX|LANES_PRD_CLAUSE|REF_DIR|MENTION_LINE|DELEGATION|BUILD_ORDER_LINE|QA_REF_ARG|DB_RELEASE_CLAUSE|IMPL_PR_CLAUSE|FIGMA_ROOT_CLAUSE|SLACK_MENTION_CLAUSE|SKILL_HOW|EXPLORER_HOW|SKILLS_DIR|SKILLS_MODE|HOME|UPSTREAM_SKILLS|AGENT_MODEL|CODEX_APPROVAL|INCLUDE_DEPTH)=' \
       | cut -d= -f1 | sort); do
       # Plain double quotes stay hand-editable; %q is the fallback for values
       # that would otherwise re-interpret when sourced.
       if [[ "${!v}" == *['"$`\']* ]]; then printf '%s=%q\n' "$v" "${!v}"
       else                                 printf '%s="%s"\n' "$v" "${!v}"; fi
     done
-  } >"$TARGET/.orc2/config.env"
-  say "  wrote .orc2/config.env"
+  } >"$TARGET/.zenchain/config.env"
+  say "  wrote .zenchain/config.env"
 }
 
 legacy_inbox_has_entries() { # legacy_inbox_has_entries <file>
@@ -623,46 +623,46 @@ do_render() {
   guard_legacy_inbox
   head2 "Rendering into $TARGET"
 
-  write_out "$TPL/ORCHESTRATOR.md" "$TARGET/$ORC2_PIPELINE_DIR/ORCHESTRATOR.md"
+  write_out "$TPL/ORCHESTRATOR.md" "$TARGET/$ZENCHAIN_PIPELINE_DIR/ORCHESTRATOR.md"
 
   # Tracker-neutral, deterministic gate. The orchestrator runs it against a
   # local issue file or a tracker body before any implementation role starts.
-  mkdir -p "$TARGET/.orc2/bin"
-  cp "$ORC2_HOME/bin/orc2-ticket-check" "$TARGET/.orc2/bin/orc2-ticket-check"
-  chmod +x "$TARGET/.orc2/bin/orc2-ticket-check"
-  say "  wrote .orc2/bin/orc2-ticket-check"
-  cp "$ORC2_HOME/bin/orc2-anti-slop-check" "$TARGET/.orc2/bin/orc2-anti-slop-check"
-  chmod +x "$TARGET/.orc2/bin/orc2-anti-slop-check"
-  say "  wrote .orc2/bin/orc2-anti-slop-check"
+  mkdir -p "$TARGET/.zenchain/bin"
+  cp "$ZENCHAIN_HOME/bin/zenchain-ticket-check" "$TARGET/.zenchain/bin/zenchain-ticket-check"
+  chmod +x "$TARGET/.zenchain/bin/zenchain-ticket-check"
+  say "  wrote .zenchain/bin/zenchain-ticket-check"
+  cp "$ZENCHAIN_HOME/bin/zenchain-anti-slop-check" "$TARGET/.zenchain/bin/zenchain-anti-slop-check"
+  chmod +x "$TARGET/.zenchain/bin/zenchain-anti-slop-check"
+  say "  wrote .zenchain/bin/zenchain-anti-slop-check"
 
   # Role prompts — native location for the runner that spawns them.
   local role
   for role in reviewer qa decider; do
-    if [[ "$ORC2_RUNNER" == claude ]]; then write_out "$TPL/agents/$role.md" "$TARGET/.claude/agents/$role.md"
-    else                                    write_out "$TPL/agents/$role.md" "$TARGET/.orc2/agents/$role.md"; fi
+    if [[ "$ZENCHAIN_RUNNER" == claude ]]; then write_out "$TPL/agents/$role.md" "$TARGET/.claude/agents/$role.md"
+    else                                    write_out "$TPL/agents/$role.md" "$TARGET/.zenchain/agents/$role.md"; fi
   done
   for role in implementer fixer explorer; do
-    if [[ "$ORC2_RUNNER_MECH" == claude ]]; then write_out "$TPL/agents/$role.md" "$TARGET/.claude/agents/$role.md"
-    else                                        write_out "$TPL/agents/$role.md" "$TARGET/.orc2/agents/$role.md"; fi
+    if [[ "$ZENCHAIN_RUNNER_MECH" == claude ]]; then write_out "$TPL/agents/$role.md" "$TARGET/.claude/agents/$role.md"
+    else                                        write_out "$TPL/agents/$role.md" "$TARGET/.zenchain/agents/$role.md"; fi
   done
 
   # Reference docs go where the runner can actually discover them. A CLI with no
-  # skill mechanism gets plain files under .orc2/skills/, cited by path.
+  # skill mechanism gets plain files under .zenchain/skills/, cited by path.
   local SKILLDIR
-  if [[ "$ORC2_RUNNER" == claude ]]; then SKILLDIR="$TARGET/.claude/skills"; else SKILLDIR="$TARGET/.orc2/skills"; fi
+  if [[ "$ZENCHAIN_RUNNER" == claude ]]; then SKILLDIR="$TARGET/.claude/skills"; else SKILLDIR="$TARGET/.zenchain/skills"; fi
 
   # The bridge, whenever any role runs outside the orchestrator's own CLI.
-  if [[ "$ORC2_RUNNER" != claude || "$ORC2_RUNNER_MECH" != claude ]]; then
-    mkdir -p "$TARGET/.orc2/bin"
-    cp "$ORC2_HOME/bin/orc2-agent" "$TARGET/.orc2/bin/orc2-agent"
-    chmod +x "$TARGET/.orc2/bin/orc2-agent"
-    say "  wrote .orc2/bin/orc2-agent"
+  if [[ "$ZENCHAIN_RUNNER" != claude || "$ZENCHAIN_RUNNER_MECH" != claude ]]; then
+    mkdir -p "$TARGET/.zenchain/bin"
+    cp "$ZENCHAIN_HOME/bin/zenchain-agent" "$TARGET/.zenchain/bin/zenchain-agent"
+    chmod +x "$TARGET/.zenchain/bin/zenchain-agent"
+    say "  wrote .zenchain/bin/zenchain-agent"
     write_out "$TPL/skills/delegate/SKILL.md" "$SKILLDIR/delegate/SKILL.md"
   fi
 
   # Entry points. `plan-app` is the front door on a repo with nothing to run yet;
   # run-prd and run-issue are useless until it has produced tickets.
-  if [[ "$ORC2_RUNNER" == claude ]]; then
+  if [[ "$ZENCHAIN_RUNNER" == claude ]]; then
     write_out "$TPL/skills/plan-app/SKILL.md"  "$TARGET/.claude/skills/plan-app/SKILL.md"
     write_out "$TPL/skills/run-issue/SKILL.md" "$TARGET/.claude/skills/run-issue/SKILL.md"
     write_out "$TPL/skills/run-prd/SKILL.md"   "$TARGET/.claude/skills/run-prd/SKILL.md"
@@ -673,7 +673,7 @@ do_render() {
   fi
 
   # Design skill, matched to the contract.
-  case "$ORC2_DESIGN" in
+  case "$ZENCHAIN_DESIGN" in
     figma) write_out "$TPL/skills/figma-to-code/SKILL.md" "$SKILLDIR/figma-to-code/SKILL.md" ;;
     lofi)  write_out "$TPL/skills/lofi-to-code/SKILL.md"  "$SKILLDIR/lofi-to-code/SKILL.md" ;;
   esac
@@ -683,7 +683,7 @@ do_render() {
   # copies from the local install instead, for an offline setup.
   local s
   if [[ $VENDOR -eq 1 ]]; then
-    for s in $ORC2_SKILLS_SET; do
+    for s in $ZENCHAIN_SKILLS_SET; do
       if [[ -d "$UPSTREAM_SKILLS/$s" ]]; then
         mkdir -p "$SKILLDIR"; cp -R "$UPSTREAM_SKILLS/$s" "$SKILLDIR/"
         strip_useronly "$SKILLDIR/$s/SKILL.md"
@@ -697,8 +697,8 @@ do_render() {
   fi
 
   # Conventions the role prompts cite.
-  write_out "$TPL/docs/issue-tracker-$ORC2_TRACKER.md" "$TARGET/docs/agents/issue-tracker.md"
-  write_out "$TPL/docs/triage-labels-$ORC2_TRACKER.md" "$TARGET/docs/agents/triage-labels.md"
+  write_out "$TPL/docs/issue-tracker-$ZENCHAIN_TRACKER.md" "$TARGET/docs/agents/issue-tracker.md"
+  write_out "$TPL/docs/triage-labels-$ZENCHAIN_TRACKER.md" "$TARGET/docs/agents/triage-labels.md"
   write_out "$TPL/docs/domain.md"                     "$TARGET/docs/agents/domain.md"
   write_out "$TPL/docs/flow.md"                       "$TARGET/docs/agents/flow.md"
   write_out "$TPL/docs/grill-with-docs-policy.md"     "$TARGET/docs/agents/grill-with-docs-policy.md"
@@ -727,8 +727,8 @@ do_render() {
 markers_sane() { # markers_sane <repo-relative-file>
   local f="$1" s e
   [[ -f "$TARGET/$f" ]] || return 0
-  s="$(grep -c 'orc2:agent-skills:start' "$TARGET/$f" || true)"
-  e="$(grep -c 'orc2:agent-skills:end'   "$TARGET/$f" || true)"
+  s="$(grep -c 'zenchain:agent-skills:start' "$TARGET/$f" || true)"
+  e="$(grep -c 'zenchain:agent-skills:end'   "$TARGET/$f" || true)"
   if [[ "$s" != "$e" ]] || (( s > 1 )); then
     say "zen: $f has $s start and $e end markers — refusing to touch it." >&2
     say "zen: repair them so each appears at most once and in pairs, then re-run." >&2
@@ -740,8 +740,8 @@ markers_sane() { # markers_sane <repo-relative-file>
   # deleting to end of file. Verified: a hand-edit that swaps them loses the tail.
   if (( s == 1 )); then
     local sl el
-    sl="$(grep -n 'orc2:agent-skills:start' "$TARGET/$f" | head -1 | cut -d: -f1)"
-    el="$(grep -n 'orc2:agent-skills:end'   "$TARGET/$f" | head -1 | cut -d: -f1)"
+    sl="$(grep -n 'zenchain:agent-skills:start' "$TARGET/$f" | head -1 | cut -d: -f1)"
+    el="$(grep -n 'zenchain:agent-skills:end'   "$TARGET/$f" | head -1 | cut -d: -f1)"
     # `>=`, not `>`: both markers on ONE line balances the counts and passes an
     # order check, but the splice sets skip=1 on that line and never clears it.
     if (( sl >= el )); then
@@ -758,13 +758,13 @@ markers_sane() { # markers_sane <repo-relative-file>
 upsert_block() { # upsert_block <repo-relative-file> <body-file>
   local f="$1" body="$2" tmp
   markers_sane "$f" || return 1
-  if [[ -f "$TARGET/$f" ]] && grep -q 'orc2:agent-skills:start' "$TARGET/$f"; then
-    tmp="$(mktemp -t orc2-agents.XXXXXX)"
+  if [[ -f "$TARGET/$f" ]] && grep -q 'zenchain:agent-skills:start' "$TARGET/$f"; then
+    tmp="$(mktemp -t zenchain-agents.XXXXXX)"
     # The block is multi-line, so it reaches awk as a file: awk rejects a literal
     # newline in a -v assignment.
     awk -v bf="$body" '
-      /orc2:agent-skills:start/ { while ((getline l < bf) > 0) print l; skip=1; next }
-      /orc2:agent-skills:end/   { skip=0; next }
+      /zenchain:agent-skills:start/ { while ((getline l < bf) > 0) print l; skip=1; next }
+      /zenchain:agent-skills:end/   { skip=0; next }
       !skip { print }
     ' "$TARGET/$f" >"$tmp"
     write_preserving "$TARGET/$f" "$tmp"
@@ -776,17 +776,17 @@ upsert_block() { # upsert_block <repo-relative-file> <body-file>
   fi
 }
 
-# Delete a marked block. Used to migrate a repo where an earlier orc2 wrote the
+# Delete a marked block. Used to migrate a repo where an earlier zenchain wrote the
 # block straight into CLAUDE.md — without this, both files carry it and they
 # drift apart on the next render.
 strip_block() { # strip_block <repo-relative-file>
   local f="$1" tmp
-  [[ -f "$TARGET/$f" ]] && grep -q 'orc2:agent-skills:start' "$TARGET/$f" || return 0
+  [[ -f "$TARGET/$f" ]] && grep -q 'zenchain:agent-skills:start' "$TARGET/$f" || return 0
   markers_sane "$f" || return 1
-  tmp="$(mktemp -t orc2-strip.XXXXXX)"
+  tmp="$(mktemp -t zenchain-strip.XXXXXX)"
   awk '
-    /orc2:agent-skills:start/ { skip=1; next }
-    /orc2:agent-skills:end/   { skip=0; next }
+    /zenchain:agent-skills:start/ { skip=1; next }
+    /zenchain:agent-skills:end/   { skip=0; next }
     !skip { print }
   ' "$TARGET/$f" >"$tmp"
   write_preserving "$TARGET/$f" "$tmp"
@@ -801,20 +801,20 @@ strip_block() { # strip_block <repo-relative-file>
 # the others read it directly. CLAUDE.md then imports it with `@AGENTS.md`,
 # because CLAUDE.md is the file Claude Code is documented to load and AGENTS.md
 # support is not something to assume. One source of truth, both toolchains reach
-# it, and switching ORC2_RUNNER later changes nothing.
+# it, and switching ZENCHAIN_RUNNER later changes nothing.
 #
 # The previous version picked one file — CLAUDE.md if present, else AGENTS.md,
 # else it *created* AGENTS.md regardless of the runner. On a repo with neither
 # file and runner=claude that wrote the one file the runner may never load.
 write_agent_skills_block() {
   local body
-  body="$(mktemp -t orc2-block.XXXXXX)"
+  body="$(mktemp -t zenchain-block.XXXXXX)"
   render "$TPL/fragments/agent-skills-block.md" >"$body"
 
-  if [[ -n "$ORC2_AGENTS_FILE" ]]; then
+  if [[ -n "$ZENCHAIN_AGENTS_FILE" ]]; then
     # An explicit target is taken literally, wherever it points, with no import
     # wiring: the human has said where this belongs.
-    upsert_block "$ORC2_AGENTS_FILE" "$body"
+    upsert_block "$ZENCHAIN_AGENTS_FILE" "$body"
     rm -f "$body"; return 0
   fi
 
@@ -833,10 +833,10 @@ ensure_import() { # ensure_import <repo-relative-file>
     return 0
   fi
   if [[ -s "$TARGET/$f" ]]; then
-    printf '\n<!-- orc2: the pipeline config lives in AGENTS.md, imported here so Claude Code loads it too. -->\n@AGENTS.md\n' >>"$TARGET/$f"
+    printf '\n<!-- zenchain: the pipeline config lives in AGENTS.md, imported here so Claude Code loads it too. -->\n@AGENTS.md\n' >>"$TARGET/$f"
     say "  added the AGENTS.md import to $f"
   else
-    printf '<!-- orc2: AGENTS.md is the single source for this repo. This file imports it\n     so Claude Code loads it too; add your own notes below the import. -->\n@AGENTS.md\n' >"$TARGET/$f"
+    printf '<!-- zenchain: AGENTS.md is the single source for this repo. This file imports it\n     so Claude Code loads it too; add your own notes below the import. -->\n@AGENTS.md\n' >"$TARGET/$f"
     say "  created $f importing AGENTS.md"
   fi
 }
@@ -848,7 +848,7 @@ ensure_import() { # ensure_import <repo-relative-file>
 # it sends them at the pipeline before anything has decided what to build.
 intake_state() { # echoes: empty | specs-only | ready | building
   local prds=0 issues=0 agentready=0
-  if [[ "$ORC2_TRACKER" == scratch ]]; then
+  if [[ "$ZENCHAIN_TRACKER" == scratch ]]; then
     prds="$(ls -d "$TARGET"/.scratch/*/PRD.md 2>/dev/null | wc -l | tr -d ' ')"
     issues="$(ls "$TARGET"/.scratch/*/issues/*.md 2>/dev/null | wc -l | tr -d ' ')"
     agentready="$(grep -rl 'ready-for-agent' "$TARGET"/.scratch/*/issues/ 2>/dev/null | wc -l | tr -d ' ')"
@@ -867,7 +867,7 @@ intake_state() { # echoes: empty | specs-only | ready | building
 next_step() {
   local state cmd_prefix
   state="$(intake_state)"
-  if [[ "$ORC2_RUNNER" == claude ]]; then cmd_prefix="/"; else cmd_prefix="codex-prompt: "; fi
+  if [[ "$ZENCHAIN_RUNNER" == claude ]]; then cmd_prefix="/"; else cmd_prefix="codex-prompt: "; fi
 
   step() { printf '  %-2s %-21s %s\n' "$1" "$2" "$3"; }
   cont() { printf '     %-21s %s\n' "" "$1"; }
@@ -896,7 +896,7 @@ next_step() {
       say ""
       step 1. "/to-tickets"                 "slice each spec into tracer-bullet tickets (or /to-issues)"
       cont                                  "each needs acceptance criteria, ## Depends on, ## Relevant files"
-      step 2. "edit .orc2/config.env"       "record the area order as ORC2_BUILD_ORDER, then: zen render"
+      step 2. "edit .zenchain/config.env"       "record the area order as ZENCHAIN_BUILD_ORDER, then: zen render"
       step 3. "${cmd_prefix}run-prd <area>" "the pipeline"
       ;;
     ready)
@@ -913,7 +913,7 @@ next_step() {
       step "" "${cmd_prefix}run-issue <NN>"  "one issue, then stop"
       ;;
   esac
-  [[ "$ORC2_RUNNER" == claude ]] || say $'\nCodex has no slash commands: pass the file, e.g. codex "$(cat .codex/prompts/run-prd.md)".'
+  [[ "$ZENCHAIN_RUNNER" == claude ]] || say $'\nCodex has no slash commands: pass the file, e.g. codex "$(cat .codex/prompts/run-prd.md)".'
 }
 
 # ------------------------------------------------------------------ skills ---
@@ -924,7 +924,7 @@ next_step() {
 # the global copy would point at a file that cannot be invoked.
 skill_where() { # skill_where <name> ; echoes <dir>|global|missing
   local s="$1" c
-  for c in "$TARGET/.claude/skills" "$TARGET/.orc2/skills"; do
+  for c in "$TARGET/.claude/skills" "$TARGET/.zenchain/skills"; do
     [[ -d "$c/$s" ]] && { echo "${c#$TARGET/}"; return; }
   done
   [[ -d "$UPSTREAM_SKILLS/$s" ]] && { echo "global"; return; }
@@ -935,10 +935,10 @@ do_skills() { # do_skills [--global]
   local install_global="${1:-}" s where missing="" sha tarball
   head2 "Skills — $TARGET"
   say "Pipeline roles drive these (agent-invocable):"
-  for s in $ORC2_SKILLS_SET; do printf '  %-26s %s\n' "$s" "$(skill_where "$s")"; done
+  for s in $ZENCHAIN_SKILLS_SET; do printf '  %-26s %s\n' "$s" "$(skill_where "$s")"; done
   say ""
   say "You drive these, before the pipeline has anything to build (user-only):"
-  for s in $ORC2_SKILLS_FRONTEND; do
+  for s in $ZENCHAIN_SKILLS_FRONTEND; do
     where="$(skill_where "$s")"
     printf '  %-26s %s\n' "$s" "$where"
     [[ "$where" == missing ]] && missing="$missing $s"
@@ -956,19 +956,19 @@ do_skills() { # do_skills [--global]
   fi
 
   # --global: install into the user's own skills directory, so every project gets
-  # them and orc2 stops vendoring per-project copies.
-  sha="${ORC2_SKILLS_PIN:-$(resolve_pin main || true)}"
+  # them and zenchain stops vendoring per-project copies.
+  sha="${ZENCHAIN_SKILLS_PIN:-$(resolve_pin main || true)}"
   [[ -n "$sha" ]] || { say "zen: cannot reach github to resolve a commit — try again online" >&2; return 1; }
-  tarball="${XDG_CACHE_HOME:-$HOME/.cache}/orc2/${ORC2_SKILLS_REPO//\//-}-${sha}.tgz"
+  tarball="${XDG_CACHE_HOME:-$HOME/.cache}/zenchain/${ZENCHAIN_SKILLS_REPO//\//-}-${sha}.tgz"
   if [[ ! -s "$tarball" ]]; then
     mkdir -p "$(dirname "$tarball")"
-    curl -fsSL -m 60 "https://codeload.github.com/${ORC2_SKILLS_REPO}/tar.gz/${sha}" -o "$tarball.part" \
+    curl -fsSL -m 60 "https://codeload.github.com/${ZENCHAIN_SKILLS_REPO}/tar.gz/${sha}" -o "$tarball.part" \
       || { say "zen: download failed" >&2; rm -f "$tarball.part"; return 1; }
     mv "$tarball.part" "$tarball"
   fi
   mkdir -p "$UPSTREAM_SKILLS"
   head2 "Installing into $UPSTREAM_SKILLS at ${sha:0:12}"
-  for s in $ORC2_SKILLS_SET $ORC2_SKILLS_FRONTEND; do
+  for s in $ZENCHAIN_SKILLS_SET $ZENCHAIN_SKILLS_FRONTEND; do
     if [[ -d "$UPSTREAM_SKILLS/$s" ]]; then say "  kept $s (already installed — not overwritten)"; continue; fi
     if extract_skill "$tarball" "$sha" "$s" "$UPSTREAM_SKILLS"; then say "  installed $s"
     else say "  ! $s not found upstream"; fi
@@ -982,25 +982,25 @@ do_skills() { # do_skills [--global]
 do_doctor() {
   head2 "ZenChain doctor — $TARGET"
   local fail=0
-  [[ -f "$TARGET/.orc2/config.env" ]] || { say "FAIL  no .orc2/config.env — run \`zen init\` here"; return 1; }
+  [[ -f "$TARGET/.zenchain/config.env" ]] || { say "FAIL  no .zenchain/config.env — run \`zen init\` here"; return 1; }
   # shellcheck disable=SC1091
-  set -a; . "$TARGET/.orc2/config.env"; set +a; derive
+  set -a; . "$TARGET/.zenchain/config.env"; set +a; derive
 
-  say "S  project=$ORC2_PROJECT tracker=$ORC2_TRACKER design=$ORC2_DESIGN runner=$ORC2_RUNNER/$ORC2_RUNNER_MECH lanes=$ORC2_LANES db=$ORC2_DB"
+  say "S  project=$ZENCHAIN_PROJECT tracker=$ZENCHAIN_TRACKER design=$ZENCHAIN_DESIGN runner=$ZENCHAIN_RUNNER/$ZENCHAIN_RUNNER_MECH lanes=$ZENCHAIN_LANES db=$ZENCHAIN_DB"
 
-  [[ -f "$TARGET/$ORC2_PIPELINE_DIR/ORCHESTRATOR.md" ]] \
+  [[ -f "$TARGET/$ZENCHAIN_PIPELINE_DIR/ORCHESTRATOR.md" ]] \
     && say "PASS  orchestrator present" || { say "FAIL  ORCHESTRATOR.md missing — run \`zen render\`"; fail=1; }
 
   local role loc
   for role in implementer fixer explorer reviewer qa decider; do
     loc=""
     [[ -f "$TARGET/.claude/agents/$role.md" ]] && loc=".claude/agents"
-    [[ -f "$TARGET/.orc2/agents/$role.md" ]]    && loc="${loc:+$loc + }.orc2/agents"
+    [[ -f "$TARGET/.zenchain/agents/$role.md" ]]    && loc="${loc:+$loc + }.zenchain/agents"
     [[ -n "$loc" ]] && say "PASS  role $role ($loc)" || { say "FAIL  role $role missing"; fail=1; }
   done
 
   local b
-  for b in "$ORC2_RUNNER" "$ORC2_RUNNER_MECH"; do
+  for b in "$ZENCHAIN_RUNNER" "$ZENCHAIN_RUNNER_MECH"; do
     command -v "$b" >/dev/null && say "PASS  backend CLI $b on PATH" \
       || { say "FAIL  backend CLI $b not on PATH"; fail=1; }
   done
@@ -1009,18 +1009,18 @@ do_doctor() {
   # the rest of the function and silently stop every later `for x in $list` from
   # splitting on whitespace.
   local c
-  IFS=';' read -ra CMDS <<<"$ORC2_GATE"
+  IFS=';' read -ra CMDS <<<"$ZENCHAIN_GATE"
   for c in "${CMDS[@]}"; do
     c="$(echo "$c" | sed 's/^ *//;s/ *$//')"; [[ -z "$c" ]] && continue
     command -v "${c%% *}" >/dev/null && say "PASS  gate cmd runnable: $c" \
       || { say "WARN  gate cmd not on PATH: $c"; }
   done
 
-  case "$ORC2_DB" in
+  case "$ZENCHAIN_DB" in
     postgres)
-      if [[ "$ORC2_DEV_DB$ORC2_LANE_PREFIX" =~ [^a-z0-9_] ]]; then
-        say "WARN  a database name contains a character PostgreSQL needs quoted ($ORC2_DEV_DB / $ORC2_LANE_PREFIX*)."
-        say "      createdb and dropdb quote for you, but raw SQL does not: DROP DATABASE ${ORC2_LANE_PREFIX}x is a syntax error."
+      if [[ "$ZENCHAIN_DEV_DB$ZENCHAIN_LANE_PREFIX" =~ [^a-z0-9_] ]]; then
+        say "WARN  a database name contains a character PostgreSQL needs quoted ($ZENCHAIN_DEV_DB / $ZENCHAIN_LANE_PREFIX*)."
+        say "      createdb and dropdb quote for you, but raw SQL does not: DROP DATABASE ${ZENCHAIN_LANE_PREFIX}x is a syntax error."
         say "      Either use [a-z0-9_] only, or double-quote the name in every hand-written statement."
       else
         say "PASS  database names are safe unquoted in raw SQL"
@@ -1031,31 +1031,31 @@ do_doctor() {
     sqlite)
       command -v sqlite3 >/dev/null && say "PASS  sqlite3 present" \
         || say "WARN  sqlite3 not on PATH — fine if the app bundles its own driver, but you cannot inspect a lane's database by hand"
-      [[ -n "$ORC2_DEV_DB" && -e "$TARGET/$ORC2_DEV_DB" ]] && say "PASS  development database file exists: $ORC2_DEV_DB" \
-        || say "WARN  development database file $ORC2_DEV_DB does not exist yet — the first migration creates it" ;;
+      [[ -n "$ZENCHAIN_DEV_DB" && -e "$TARGET/$ZENCHAIN_DEV_DB" ]] && say "PASS  development database file exists: $ZENCHAIN_DEV_DB" \
+        || say "WARN  development database file $ZENCHAIN_DEV_DB does not exist yet — the first migration creates it" ;;
   esac
   [[ -f "$TARGET/docs/INBOX.md" ]] && say "PASS  human decision queue present (docs/INBOX.md)" \
     || { say "WARN  docs/INBOX.md missing — run \`zen render\`"; }
-  [[ -x "$TARGET/.orc2/bin/orc2-ticket-check" ]] && say "PASS  ticket readiness checker present" \
-    || { say "FAIL  .orc2/bin/orc2-ticket-check missing — run \`zen render\`"; fail=1; }
-  if [[ "$ORC2_ANTI_SLOP" == enforced ]]; then
-    if [[ ! -x "$TARGET/.orc2/bin/orc2-anti-slop-check" ]]; then
-      say "FAIL  .orc2/bin/orc2-anti-slop-check missing — run \`zen render\`"; fail=1
-    elif anti_slop_out="$("$TARGET/.orc2/bin/orc2-anti-slop-check" "$TARGET" 2>&1)"; then
+  [[ -x "$TARGET/.zenchain/bin/zenchain-ticket-check" ]] && say "PASS  ticket readiness checker present" \
+    || { say "FAIL  .zenchain/bin/zenchain-ticket-check missing — run \`zen render\`"; fail=1; }
+  if [[ "$ZENCHAIN_ANTI_SLOP" == enforced ]]; then
+    if [[ ! -x "$TARGET/.zenchain/bin/zenchain-anti-slop-check" ]]; then
+      say "FAIL  .zenchain/bin/zenchain-anti-slop-check missing — run \`zen render\`"; fail=1
+    elif anti_slop_out="$("$TARGET/.zenchain/bin/zenchain-anti-slop-check" "$TARGET" 2>&1)"; then
       say "PASS  anti-slop enforcement ready — $anti_slop_out"
     else
       say "$anti_slop_out"
       fail=1
     fi
   else
-    say "INFO  anti-slop enforcement disabled by ORC2_ANTI_SLOP=off"
+    say "INFO  anti-slop enforcement disabled by ZENCHAIN_ANTI_SLOP=off"
   fi
   local policy agents_target
   for policy in grill-with-docs-policy ticket-writing-policy; do
     [[ -f "$TARGET/docs/agents/$policy.md" ]] && say "PASS  local modifier $policy present" \
       || { say "FAIL  local modifier $policy missing — run \`zen render\`"; fail=1; }
   done
-  agents_target="${ORC2_AGENTS_FILE:-AGENTS.md}"
+  agents_target="${ZENCHAIN_AGENTS_FILE:-AGENTS.md}"
   grep -q 'grill-with-docs-policy.md' "$TARGET/$agents_target" 2>/dev/null \
     && grep -q 'ticket-writing-policy.md' "$TARGET/$agents_target" 2>/dev/null \
     && say "PASS  Agent skills block routes both local modifiers" \
@@ -1065,20 +1065,20 @@ do_doctor() {
     [[ -d "$legacy" ]] && say "INFO  legacy decision records present at ${legacy#$TARGET/}; preserved but non-authoritative"
   done
 
-  if [[ "$ORC2_DESIGN" == figma ]]; then
+  if [[ "$ZENCHAIN_DESIGN" == figma ]]; then
     curl -sS -m 3 -o /dev/null http://127.0.0.1:3845/mcp 2>/dev/null \
       && say "PASS  Figma Dev Mode MCP reachable" \
       || say "WARN  Figma MCP not reachable at 127.0.0.1:3845 — enable Dev Mode MCP in the Figma desktop app before a screen issue"
   fi
-  if [[ "$ORC2_NOTIFY" == slack ]]; then
-    [[ -n "${!ORC2_SLACK_ENV:-}" ]] && say "PASS  $ORC2_SLACK_ENV is set" \
-      || say "WARN  $ORC2_SLACK_ENV unset — the run will fall back to a terminal-only report"
+  if [[ "$ZENCHAIN_NOTIFY" == slack ]]; then
+    [[ -n "${!ZENCHAIN_SLACK_ENV:-}" ]] && say "PASS  $ZENCHAIN_SLACK_ENV is set" \
+      || say "WARN  $ZENCHAIN_SLACK_ENV unset — the run will fall back to a terminal-only report"
   fi
   # Every skill a role prompt names must be reachable AND agent-invocable.
   local s d missing=0 useronly=0
-  for s in $ORC2_SKILLS_SET; do
+  for s in $ZENCHAIN_SKILLS_SET; do
     d=""
-    for c in "$TARGET/.claude/skills/$s" "$TARGET/.orc2/skills/$s" "$UPSTREAM_SKILLS/$s"; do
+    for c in "$TARGET/.claude/skills/$s" "$TARGET/.zenchain/skills/$s" "$UPSTREAM_SKILLS/$s"; do
       [[ -d "$c" ]] && { d="$c"; break; }
     done
     if [[ -z "$d" ]]; then missing=$((missing + 1)); say "WARN  skill $s not reachable — role prompts citing it will dangle"; continue; fi
@@ -1088,28 +1088,28 @@ do_doctor() {
       fail=1
     fi
   done
-  [[ $missing -eq 0 && $useronly -eq 0 ]] && say "PASS  all $(echo $ORC2_SKILLS_SET | wc -w | tr -d ' ') cited skills reachable and agent-invocable"
+  [[ $missing -eq 0 && $useronly -eq 0 ]] && say "PASS  all $(echo $ZENCHAIN_SKILLS_SET | wc -w | tr -d ' ') cited skills reachable and agent-invocable"
 
-  if [[ -n "$ORC2_SKILLS_PIN" ]]; then
+  if [[ -n "$ZENCHAIN_SKILLS_PIN" ]]; then
     local head_sha
     head_sha="$(resolve_pin main || true)"
     if [[ -z "$head_sha" ]]; then
-      say "INFO  pinned $ORC2_SKILLS_REPO@${ORC2_SKILLS_PIN:0:12} (offline — cannot check for drift)"
-    elif [[ "$head_sha" == "$ORC2_SKILLS_PIN" ]]; then
-      say "PASS  skills pinned at $ORC2_SKILLS_REPO@${ORC2_SKILLS_PIN:0:12} (current)"
+      say "INFO  pinned $ZENCHAIN_SKILLS_REPO@${ZENCHAIN_SKILLS_PIN:0:12} (offline — cannot check for drift)"
+    elif [[ "$head_sha" == "$ZENCHAIN_SKILLS_PIN" ]]; then
+      say "PASS  skills pinned at $ZENCHAIN_SKILLS_REPO@${ZENCHAIN_SKILLS_PIN:0:12} (current)"
     else
-      say "INFO  skills pinned at ${ORC2_SKILLS_PIN:0:12}; upstream main is now ${head_sha:0:12}."
-      say "      Re-pin deliberately: clear ORC2_SKILLS_PIN in .orc2/config.env and run \`zen render\` — never mid-run."
+      say "INFO  skills pinned at ${ZENCHAIN_SKILLS_PIN:0:12}; upstream main is now ${head_sha:0:12}."
+      say "      Re-pin deliberately: clear ZENCHAIN_SKILLS_PIN in .zenchain/config.env and run \`zen render\` — never mid-run."
     fi
   else
-    say "WARN  no ORC2_SKILLS_PIN recorded — the vendored skills are unversioned"
+    say "WARN  no ZENCHAIN_SKILLS_PIN recorded — the vendored skills are unversioned"
   fi
 
   # The planning skills a human runs. Missing ones are a WARN, not a FAIL: the
   # pipeline itself still works, but `plan-app` names them and its instructions
   # dangle without them — and an uninstalled skill fails silently.
   local fe_missing=""
-  for s in $ORC2_SKILLS_FRONTEND; do
+  for s in $ZENCHAIN_SKILLS_FRONTEND; do
     [[ "$(skill_where "$s")" == missing ]] && fe_missing="$fe_missing $s"
   done
   [[ -z "$fe_missing" ]] && say "PASS  planning skills reachable (plan-app can be followed)" \
@@ -1122,26 +1122,26 @@ do_doctor() {
     [[ -f "$TARGET/docs/agents/$c.md" ]] && say "PASS  local modifier present ($c)" \
       || { say "WARN  docs/agents/$c.md missing — run \`zen render\`"; }
   done
-  if [[ -n "$ORC2_AGENTS_FILE" ]]; then
-    grep -q 'orc2:agent-skills:start' "$TARGET/$ORC2_AGENTS_FILE" 2>/dev/null \
-      && say "PASS  Agent skills block present in $ORC2_AGENTS_FILE (explicit target)" \
-      || say "WARN  no Agent skills block in $ORC2_AGENTS_FILE — run \`zen render\`"
+  if [[ -n "$ZENCHAIN_AGENTS_FILE" ]]; then
+    grep -q 'zenchain:agent-skills:start' "$TARGET/$ZENCHAIN_AGENTS_FILE" 2>/dev/null \
+      && say "PASS  Agent skills block present in $ZENCHAIN_AGENTS_FILE (explicit target)" \
+      || say "WARN  no Agent skills block in $ZENCHAIN_AGENTS_FILE — run \`zen render\`"
   else
-    grep -q 'orc2:agent-skills:start' "$TARGET/AGENTS.md" 2>/dev/null \
+    grep -q 'zenchain:agent-skills:start' "$TARGET/AGENTS.md" 2>/dev/null \
       && say "PASS  Agent skills block present in AGENTS.md" \
       || say "WARN  no Agent skills block in AGENTS.md — the skills find their config through it"
     # CLAUDE.md is the file Claude Code is documented to load. Without the import,
     # a runner=claude repo can carry a perfectly good AGENTS.md the model never sees.
     if grep -q '^@AGENTS\.md[[:space:]]*$' "$TARGET/CLAUDE.md" 2>/dev/null; then
       say "PASS  CLAUDE.md imports AGENTS.md"
-    elif [[ "$ORC2_RUNNER" == claude ]]; then
+    elif [[ "$ZENCHAIN_RUNNER" == claude ]]; then
       say "FAIL  CLAUDE.md does not import AGENTS.md, so the block may never reach the model."
       say "      Run \`zen render\`, or add a line reading exactly: @AGENTS.md"
       fail=1
     else
-      say "INFO  CLAUDE.md does not import AGENTS.md (runner is $ORC2_RUNNER, which reads AGENTS.md directly)"
+      say "INFO  CLAUDE.md does not import AGENTS.md (runner is $ZENCHAIN_RUNNER, which reads AGENTS.md directly)"
     fi
-    if grep -q 'orc2:agent-skills:start' "$TARGET/CLAUDE.md" 2>/dev/null; then
+    if grep -q 'zenchain:agent-skills:start' "$TARGET/CLAUDE.md" 2>/dev/null; then
       say "FAIL  the block is in BOTH CLAUDE.md and AGENTS.md — they will drift. Run \`zen render\`."
       fail=1
     fi
@@ -1168,12 +1168,12 @@ case "$CMD" in
   say "Then: zen doctor $TARGET"
     ;;
   render)
-    [[ -f "$TARGET/.orc2/config.env" ]] || { say "zen: no .orc2/config.env in $TARGET — run \`zen init\` first" >&2; exit 2; }
-    set -a; . "$TARGET/.orc2/config.env"; set +a
+    [[ -f "$TARGET/.zenchain/config.env" ]] || { say "zen: no .zenchain/config.env in $TARGET — run \`zen init\` first" >&2; exit 2; }
+    set -a; . "$TARGET/.zenchain/config.env"; set +a
     do_render ;;
   doctor) do_doctor ;;
   skills)
-    [[ -f "$TARGET/.orc2/config.env" ]] && { set -a; . "$TARGET/.orc2/config.env"; set +a; }
+    [[ -f "$TARGET/.zenchain/config.env" ]] && { set -a; . "$TARGET/.zenchain/config.env"; set +a; }
     derive
     do_skills "${SKILLS_ARG:-}" ;;
   help|-h|--help) awk 'NR>1 && /^#/{sub(/^# ?/,""); print; next} NR>1{exit}' "$0" ;;

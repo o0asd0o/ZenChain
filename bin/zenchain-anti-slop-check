@@ -11,18 +11,18 @@ if [[ -z "$ROOT" ]]; then
 fi
 ROOT="$(cd "$ROOT" && pwd)"
 
-if [[ -f "$ROOT/.orc2/config.env" ]]; then
+if [[ -f "$ROOT/.zenchain/config.env" ]]; then
   # shellcheck disable=SC1091
-  set -a; . "$ROOT/.orc2/config.env"; set +a
+  set -a; . "$ROOT/.zenchain/config.env"; set +a
 fi
-: "${ORC2_ANTI_SLOP:=enforced}" "${ORC2_GATE:=}"
+: "${ZENCHAIN_ANTI_SLOP:=enforced}" "${ZENCHAIN_GATE:=}"
 
-if [[ "$ORC2_ANTI_SLOP" == off ]]; then
+if [[ "$ZENCHAIN_ANTI_SLOP" == off ]]; then
   echo "PASS anti-slop disabled"
   exit 0
 fi
-if [[ "$ORC2_ANTI_SLOP" != enforced ]]; then
-  echo "FAIL anti-slop mode must be enforced or off: $ORC2_ANTI_SLOP" >&2
+if [[ "$ZENCHAIN_ANTI_SLOP" != enforced ]]; then
+  echo "FAIL anti-slop mode must be enforced or off: $ZENCHAIN_ANTI_SLOP" >&2
   exit 1
 fi
 if [[ ! -f "$ROOT/package.json" ]]; then
@@ -89,8 +89,8 @@ fi
 (( has_oxlint == 1 )) || problem "direct dependency missing: oxlint"
 (( has_plugins == 1 )) || problem "direct dependency missing: @oxlint/plugins"
 
-grep -Eq 'vp[[:space:]]+check|npm[[:space:]]+run[[:space:]]+lint|pnpm([[:space:]]+run)?[[:space:]]+lint|yarn([[:space:]]+run)?[[:space:]]+lint|bun([[:space:]]+run)?[[:space:]]+lint|(^|[[:space:];])oxlint([[:space:];]|$)' <<<"$ORC2_GATE" \
-  || problem "ORC2_GATE has no lint command that can execute anti-slop"
+grep -Eq 'vp[[:space:]]+check|npm[[:space:]]+run[[:space:]]+lint|pnpm([[:space:]]+run)?[[:space:]]+lint|yarn([[:space:]]+run)?[[:space:]]+lint|bun([[:space:]]+run)?[[:space:]]+lint|(^|[[:space:];])oxlint([[:space:];]|$)' <<<"$ZENCHAIN_GATE" \
+  || problem "ZENCHAIN_GATE has no lint command that can execute anti-slop"
 
 if (( has_effect == 1 )); then
   [[ -f "$ROOT/tools/oxlint/anti-slop/effect/index.ts" ]] \
