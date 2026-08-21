@@ -34,6 +34,16 @@ if grep -q '^# ZenChain' "$ZENCHAIN_HOME/README.md" && grep -q 'zen init' "$ZENC
 else
   echo "FAIL  README still uses the old public name"; fail=1
 fi
+if [[ -f "$ZENCHAIN_HOME/install.ps1" ]]; then
+  echo "PASS  Windows installer is present"
+else
+  echo "FAIL  Windows installer is missing"; fail=1
+fi
+if grep -q 'install.ps1' "$ZENCHAIN_HOME/README.md" && grep -q 'Git Bash' "$ZENCHAIN_HOME/README.md"; then
+  echo "PASS  README documents Windows installation"
+else
+  echo "FAIL  README lacks Windows installation instructions"; fail=1
+fi
 bash -n "$ZENCHAIN_HOME/bin/zenchain-agent" || { echo "FAIL  zenchain-agent has a syntax error"; exit 1; }
 bash -n "$ZENCHAIN_HOME/bin/zenchain-ticket-check" || { echo "FAIL  zenchain-ticket-check has a syntax error"; exit 1; }
 if [[ -f "$ZENCHAIN_HOME/bin/zenchain-anti-slop-check" ]]; then
