@@ -324,7 +324,25 @@ if [[ ! -x "$anti_checker" ]]; then
 else
   d="$WORK/anti-slop-valid"; mkdir -p "$d/.orc2" "$d/tools/oxlint/anti-slop"
   printf '%s\n' '{"devDependencies":{"oxlint":"1.78.0","@oxlint/plugins":"1.78.0"}}' >"$d/package.json"
-  printf '%s\n' 'export default { rules: { "anti-slop/no-chained-type-assertions": "error" } }' >"$d/oxlint.config.ts"
+  printf '%s\n' 'export default { jsPlugins: [{ name: "anti-slop", specifier: "./tools/oxlint/anti-slop/index.ts" }], rules: {' >"$d/oxlint.config.ts"
+  while IFS= read -r rule; do printf '  "anti-slop/%s": "error",\n' "$rule" >>"$d/oxlint.config.ts"; done <<'RULES'
+no-chained-type-assertions
+no-conditional-empty-object-spread
+no-known-value-widening
+no-module-mocking
+no-object-parameters
+no-reflect-apply
+no-reflect-get
+no-runtime-typeof
+no-shape-in-symbol-names
+no-unknown-parameters
+no-unknown-returns
+no-unknown-type-aliases
+no-unsafe-dictionary-type
+no-widen-then-assert
+require-safety-comment-for-type-assertion
+RULES
+  printf '%s\n' '} }' >>"$d/oxlint.config.ts"
   printf '%s\n' 'export const antiSlop = true' >"$d/tools/oxlint/anti-slop/index.ts"
   printf '%s\n' 'ORC2_ANTI_SLOP="enforced"' 'ORC2_GATE="npm run lint; npm test"' >"$d/.orc2/config.env"
   "$anti_checker" "$d" >/dev/null 2>&1 \
@@ -333,7 +351,7 @@ else
 
   d="$WORK/anti-slop-missing"; mkdir -p "$d/.orc2"
   printf '%s\n' '{"devDependencies":{"oxlint":"1.78.0","@oxlint/plugins":"1.78.0"}}' >"$d/package.json"
-  printf '%s\n' 'export default { rules: { "anti-slop/no-chained-type-assertions": "error" } }' >"$d/oxlint.config.ts"
+  cp "$WORK/anti-slop-valid/oxlint.config.ts" "$d/oxlint.config.ts"
   printf '%s\n' 'ORC2_ANTI_SLOP="enforced"' 'ORC2_GATE="npm test"' >"$d/.orc2/config.env"
   if "$anti_checker" "$d" >"$WORK/anti-slop-missing.log" 2>&1; then
     echo "FAIL  anti-slop accepted missing plugin and lint gate"; fail=1
@@ -346,7 +364,7 @@ else
 
   d="$WORK/anti-slop-effect"; mkdir -p "$d/.orc2" "$d/tools/oxlint/anti-slop"
   printf '%s\n' '{"dependencies":{"effect":"3.0.0"},"devDependencies":{"oxlint":"1.78.0","@oxlint/plugins":"1.78.0"}}' >"$d/package.json"
-  printf '%s\n' 'export default { rules: { "anti-slop/no-chained-type-assertions": "error" } }' >"$d/oxlint.config.ts"
+  cp "$WORK/anti-slop-valid/oxlint.config.ts" "$d/oxlint.config.ts"
   printf '%s\n' 'export const antiSlop = true' >"$d/tools/oxlint/anti-slop/index.ts"
   printf '%s\n' 'ORC2_ANTI_SLOP="enforced"' 'ORC2_GATE="npm run lint"' >"$d/.orc2/config.env"
   if "$anti_checker" "$d" >"$WORK/anti-slop-effect.log" 2>&1; then

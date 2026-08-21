@@ -88,6 +88,8 @@ Independent of Batch A and of each other. Capture answers in the specs. Only can
 
 **Two of these are already answered — read, do not ask.** The data store engine is `ORC2_DB` and the gate commands are `ORC2_GATE` in `.orc2/config.env`. Confirm them in one line each. A proposed change belongs in the relevant ticket's `## Approved Technical Changes` after human approval.
 
+Anti-slop is `{{ANTI_SLOP}}`. When it is `enforced` and the application uses TypeScript or JavaScript, the Foundation ticket must vendor [dmmulroy/anti-slop](https://github.com/dmmulroy/anti-slop) at `tools/oxlint/anti-slop/`, register every generic rule as an error, and list `oxlint` plus `@oxlint/plugins` under `## Approved Technical Changes`. Add the Effect rule group only when `effect` is a direct dependency. The existing lint command remains the gate; do not add a network-based `npx` command to each run.
+
 #### Batch C — operations
 
 Independent of everything above. One batch.

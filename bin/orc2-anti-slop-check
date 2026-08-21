@@ -1,0 +1,107 @@
+#!/usr/bin/env bash
+# Verify that an enforced TypeScript/JavaScript anti-slop policy is installed
+# and reached by the repository's normal lint gate. This checker never installs
+# dependencies or rewrites project configuration.
+set -euo pipefail
+export LC_ALL=C
+
+ROOT="${1:-}"
+if [[ -z "$ROOT" ]]; then
+  ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+fi
+ROOT="$(cd "$ROOT" && pwd)"
+
+if [[ -f "$ROOT/.orc2/config.env" ]]; then
+  # shellcheck disable=SC1091
+  set -a; . "$ROOT/.orc2/config.env"; set +a
+fi
+: "${ORC2_ANTI_SLOP:=enforced}" "${ORC2_GATE:=}"
+
+if [[ "$ORC2_ANTI_SLOP" == off ]]; then
+  echo "PASS anti-slop disabled"
+  exit 0
+fi
+if [[ "$ORC2_ANTI_SLOP" != enforced ]]; then
+  echo "FAIL anti-slop mode must be enforced or off: $ORC2_ANTI_SLOP" >&2
+  exit 1
+fi
+if [[ ! -f "$ROOT/package.json" ]]; then
+  echo "PASS anti-slop not applicable (no package.json)"
+  exit 0
+fi
+
+fail=0
+problem() { echo "FAIL anti-slop: $*" >&2; fail=1; }
+
+plugin="$ROOT/tools/oxlint/anti-slop/index.ts"
+[[ -f "$plugin" ]] || problem "plugin source missing at tools/oxlint/anti-slop/index.ts"
+
+config=""
+for candidate in oxlint.config.ts oxlint.config.js oxlint.config.mjs oxlint.config.cjs \
+                 .oxlintrc.json vite.config.ts vite.config.js vite.config.mjs; do
+  if [[ -f "$ROOT/$candidate" ]] && grep -q 'anti-slop' "$ROOT/$candidate"; then
+    config="$ROOT/$candidate"
+    break
+  fi
+done
+if [[ -z "$config" ]]; then
+  problem "Oxlint/Vite+ configuration does not register anti-slop"
+else
+  grep -q 'tools/oxlint/anti-slop/index.ts' "$config" \
+    || problem "configuration does not register the vendored generic plugin path"
+  rules='no-chained-type-assertions
+no-conditional-empty-object-spread
+no-known-value-widening
+no-module-mocking
+no-object-parameters
+no-reflect-apply
+no-reflect-get
+no-runtime-typeof
+no-shape-in-symbol-names
+no-unknown-parameters
+no-unknown-returns
+no-unknown-type-aliases
+no-unsafe-dictionary-type
+no-widen-then-assert
+require-safety-comment-for-type-assertion'
+  while IFS= read -r rule; do
+    grep -Eq "['\"]anti-slop/$rule['\"][[:space:]]*:[[:space:]]*(['\"]error['\"]|\[[[:space:]]*['\"]error['\"])" "$config" \
+      || problem "generic rule is not enabled as error: anti-slop/$rule"
+  done <<<"$rules"
+fi
+
+has_oxlint=0; has_plugins=0; has_effect=0
+if ! command -v node >/dev/null 2>&1; then
+  problem "Node.js is required to verify package.json dependencies"
+else
+  dep_state="$(node -e '
+    const fs = require("node:fs");
+    const p = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    const deps = { ...(p.dependencies || {}), ...(p.devDependencies || {}) };
+    process.stdout.write(["oxlint", "@oxlint/plugins", "effect"].map((name) => name in deps ? "1" : "0").join(" "));
+  ' "$ROOT/package.json" 2>/dev/null || true)"
+  if [[ "$dep_state" =~ ^[01][[:space:]][01][[:space:]][01]$ ]]; then
+    read -r has_oxlint has_plugins has_effect <<<"$dep_state"
+  else
+    problem "package.json could not be parsed"
+  fi
+fi
+(( has_oxlint == 1 )) || problem "direct dependency missing: oxlint"
+(( has_plugins == 1 )) || problem "direct dependency missing: @oxlint/plugins"
+
+grep -Eq 'vp[[:space:]]+check|npm[[:space:]]+run[[:space:]]+lint|pnpm([[:space:]]+run)?[[:space:]]+lint|yarn([[:space:]]+run)?[[:space:]]+lint|bun([[:space:]]+run)?[[:space:]]+lint|(^|[[:space:];])oxlint([[:space:];]|$)' <<<"$ORC2_GATE" \
+  || problem "ORC2_GATE has no lint command that can execute anti-slop"
+
+if (( has_effect == 1 )); then
+  [[ -f "$ROOT/tools/oxlint/anti-slop/effect/index.ts" ]] \
+    || problem "Effect is a direct dependency but the Effect plugin source is missing"
+  if [[ -n "$config" ]]; then
+    grep -q 'tools/oxlint/anti-slop/effect/index.ts' "$config" \
+      || problem "Effect is a direct dependency but its plugin path is not registered"
+    grep -Eq "['\"]anti-slop-effect/no-service-constructor-imports['\"][[:space:]]*:[[:space:]]*['\"]error['\"]" "$config" \
+      || problem "Effect rule is not enabled as error"
+  fi
+fi
+
+(( fail == 0 )) || exit 1
+echo "PASS anti-slop enforced"

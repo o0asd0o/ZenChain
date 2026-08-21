@@ -169,6 +169,9 @@ interview() {
   head2 "The gate"
   say "The orchestrator runs these itself after every implement and fix. Agent reports are never trusted in their place."
   ask ORC2_GATE "Gate commands, semicolon-separated, in order" "$(detect_gate)"
+  ask_choice ORC2_ANTI_SLOP "Enforce anti-slop for TypeScript/JavaScript code?" enforced \
+    "enforced — require the vendored Oxlint plugin and run its preflight before the normal gate" \
+    "off      — use this repository's own JavaScript/TypeScript lint policy"
 
   ask ORC2_MAIN_BRANCH "Integration branch" \
     "$(git -C "$TARGET" symbolic-ref --quiet --short HEAD 2>/dev/null || echo main)"
@@ -401,7 +404,7 @@ derive() {
   else
     : "${ORC2_SLACK_ENV:=}" "${ORC2_SLACK_CHANNEL:=}"
   fi
-  : "${ORC2_GATE:=$(detect_gate)}"
+  : "${ORC2_GATE:=$(detect_gate)}" "${ORC2_ANTI_SLOP:=enforced}"
   : "${ORC2_SKILLS_REPO:=mattpocock/skills}" "${ORC2_SKILLS_PIN:=}" "${ORC2_AGENTS_FILE:=}"
   export ORC2_SKILLS_REPO ORC2_SKILLS_PIN ORC2_AGENTS_FILE
   export ORC2_DB ORC2_CODEGEN ORC2_LANES ORC2_ROUND_CAP ORC2_DESIGN ORC2_TRACKER ORC2_NOTIFY \
@@ -410,10 +413,13 @@ derive() {
          ORC2_FIGMA_FILE_KEY ORC2_FIGMA_ROOT_NODE ORC2_LOFI_DIR ORC2_DEV_DB ORC2_LANE_PREFIX \
          ORC2_DB_URI_VAR ORC2_CODEGEN_CMD ORC2_MIGRATE_CMD ORC2_MIGRATE_STATUS_CMD \
          ORC2_GENERATED_PATHS ORC2_SLACK_ENV ORC2_SLACK_CHANNEL ORC2_SLACK_MENTION \
-         ORC2_BUILD_ORDER ORC2_GATE
+         ORC2_BUILD_ORDER ORC2_GATE ORC2_ANTI_SLOP
 
+  local gate_commands="$ORC2_GATE"
+  [[ "$ORC2_ANTI_SLOP" == enforced ]] \
+    && gate_commands=".orc2/bin/orc2-anti-slop-check;$gate_commands"
   local IFS=';' c out_list="" out_block=""
-  read -ra CMDS <<<"$ORC2_GATE"
+  read -ra CMDS <<<"$gate_commands"
   for c in "${CMDS[@]}"; do
     c="$(echo "$c" | sed 's/^ *//;s/ *$//')"; [[ -z "$c" ]] && continue
     out_list+="\`$c\`, "
@@ -625,6 +631,9 @@ do_render() {
   cp "$ORC2_HOME/bin/orc2-ticket-check" "$TARGET/.orc2/bin/orc2-ticket-check"
   chmod +x "$TARGET/.orc2/bin/orc2-ticket-check"
   say "  wrote .orc2/bin/orc2-ticket-check"
+  cp "$ORC2_HOME/bin/orc2-anti-slop-check" "$TARGET/.orc2/bin/orc2-anti-slop-check"
+  chmod +x "$TARGET/.orc2/bin/orc2-anti-slop-check"
+  say "  wrote .orc2/bin/orc2-anti-slop-check"
 
   # Role prompts — native location for the runner that spawns them.
   local role
@@ -1029,6 +1038,18 @@ do_doctor() {
     || { say "WARN  docs/INBOX.md missing — run \`orc2 render\`"; }
   [[ -x "$TARGET/.orc2/bin/orc2-ticket-check" ]] && say "PASS  ticket readiness checker present" \
     || { say "FAIL  .orc2/bin/orc2-ticket-check missing — run \`orc2 render\`"; fail=1; }
+  if [[ "$ORC2_ANTI_SLOP" == enforced ]]; then
+    if [[ ! -x "$TARGET/.orc2/bin/orc2-anti-slop-check" ]]; then
+      say "FAIL  .orc2/bin/orc2-anti-slop-check missing — run \`orc2 render\`"; fail=1
+    elif anti_slop_out="$("$TARGET/.orc2/bin/orc2-anti-slop-check" "$TARGET" 2>&1)"; then
+      say "PASS  anti-slop enforcement ready — $anti_slop_out"
+    else
+      say "$anti_slop_out"
+      fail=1
+    fi
+  else
+    say "INFO  anti-slop enforcement disabled by ORC2_ANTI_SLOP=off"
+  fi
   local policy agents_target
   for policy in grill-with-docs-policy ticket-writing-policy; do
     [[ -f "$TARGET/docs/agents/$policy.md" ]] && say "PASS  local modifier $policy present" \

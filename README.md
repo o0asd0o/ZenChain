@@ -21,6 +21,7 @@ orc2 doctor                            # check the install and its backends
 | `.orc2/agents/*.md`                  | role prompts, for roles dispatched through the bridge             |
 | `.orc2/bin/orc2-agent`                | the bridge — runs a role headlessly on claude, codex, or pi       |
 | `.orc2/bin/orc2-ticket-check`         | tracker-neutral, fail-closed ticket readiness gate                |
+| `.orc2/bin/orc2-anti-slop-check`      | verifies enforced TypeScript/JavaScript anti-slop lint setup       |
 | `.claude/skills/run-issue`          | entry point: one issue, then stop                                 |
 | `.claude/skills/run-prd`            | entry point: one PRD, then stop at the human checkpoint           |
 | `.codex/prompts/run-{issue,prd}.md` | the same two entry points, when the orchestrator runs on Codex    |
@@ -78,6 +79,7 @@ The separation is the point. The reviewer physically cannot fix, so "fix" can ne
 - **Mechanical backend** — run implementer/fixer/explorer on the same CLI, or offload them to `pi` or `codex` on cheaper models
 - **Models** — one per tier: build, judge, PRD-gate, scan
 - **The gate** — the commands the orchestrator runs itself, in order, as the only ground truth
+- **Anti-slop** — `enforced` by default for repositories with `package.json`, or explicitly `off`
 - **Concurrency** — 1 lane, or 2 paired by change surface
 - **Database** — `none`, `sqlite` (a file per lane; isolation is a path), or `postgres` (a database per lane, created and dropped around the run). The saved config is the factual authority; no duplicate decision record is generated.
 - **Generated artifacts and migrations** — whether a merge leaves stale output that must be regenerated before gating
@@ -107,6 +109,8 @@ Two rules keep the copies honest:
 ## Design notes worth knowing before you change anything
 
 **The gate is run by the orchestrator, never by an agent.** Agent reports are claims. This is the single rule the whole thing rests on.
+
+**Anti-slop is enforced by default for TypeScript and JavaScript.** orc2 does not silently install project dependencies. Its preflight requires the project-vendored [dmmulroy/anti-slop](https://github.com/dmmulroy/anti-slop) plugin, every generic rule enabled as an error, direct `oxlint` and `@oxlint/plugins` dependencies, and a lint command in `ORC2_GATE`. A direct `effect` dependency also requires the opt-in Effect rule group. Repositories without `package.json` are unaffected; set `ORC2_ANTI_SLOP=off` for a different local policy.
 
 **An empty agent report is a dead dispatch, not an empty result.** A backend out of credit exits zero with empty stdout, which reads as "clean run, nothing to do." The bridge exits 3 on empty output to make that loud — it once looked like a seventeen-minute hang and was a dead process.
 

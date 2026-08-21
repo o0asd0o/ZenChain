@@ -2,7 +2,7 @@
 
 **Who reads this:** `implementer` and `fixer` before editing, and `reviewer` when judging its Standards axis. Nobody else — `explorer`, `qa`, and `decider` never write product code, so this is not loaded into their context.
 
-Five rules. The reviewer's Standards axis reads this file, so a breach is a finding, not a preference. Rules 1–3 govern what you write, rule 4 governs where it goes, rule 5 governs what you say about it.
+Five core rules apply everywhere. The reviewer's Standards axis reads this file, so a breach is a finding, not a preference. Rules 1–3 govern what you write, rule 4 governs where it goes, and rule 5 governs what you say about it. A conditional language rule follows when configured.
 
 ## 1. One change, one problem
 
@@ -67,6 +67,8 @@ features/   the actual UI and logic, in one folder per capability.
 **Style:** plain sentences, the vocabulary from the project's glossary, and no hedging. Prefer one specific line over three general ones. If the comment is longer than the code it explains, the code needs restructuring, not prose.
 
 A useful test before you keep a comment: **delete it and re-read the code.** If nothing was lost, it was noise.
+
+<!-- orc2:include anti-slop-{{ANTI_SLOP}} -->
 
 ## When this file and the existing code disagree
 
