@@ -803,8 +803,8 @@ else
 fi
 
 # plan-app must tell the reader how to get what it names.
-grep -q 'zenchain skills' "$d/.claude/skills/plan-app/SKILL.md" \
-  && echo "PASS  plan-app routes the reader to zenchain skills" \
+grep -q 'zen skills' "$d/.claude/skills/plan-app/SKILL.md" \
+  && echo "PASS  plan-app routes the reader to zen skills" \
   || { echo "FAIL  plan-app names skills without saying how to install them"; fail=1; }
 
 # doctor must actually run its checks. It once reported all nine skills as one
