@@ -12,6 +12,13 @@ trap 'rm -rf "$WORK"' EXIT
 fail=0
 
 bash -n "$ORC2_HOME/orc2"          || { echo "FAIL  orc2 has a syntax error"; exit 1; }
+if [[ -x "$ORC2_HOME/zen" ]]; then
+  bash -n "$ORC2_HOME/zen" || { echo "FAIL  zen has a syntax error"; exit 1; }
+else
+  echo "FAIL  zen executable source missing"; fail=1
+fi
+[[ ! -e "$ORC2_HOME/orc2" ]] \
+  || { echo "FAIL  legacy root orc2 executable still present"; fail=1; }
 bash -n "$ORC2_HOME/bin/orc2-agent" || { echo "FAIL  orc2-agent has a syntax error"; exit 1; }
 bash -n "$ORC2_HOME/bin/orc2-ticket-check" || { echo "FAIL  orc2-ticket-check has a syntax error"; exit 1; }
 if [[ -f "$ORC2_HOME/bin/orc2-anti-slop-check" ]]; then
