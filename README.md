@@ -13,6 +13,16 @@ zen doctor                             # check the install and its backends
 
 `zen init` with no argument targets the current directory. On a fresh repo it will **not** tell you to run the pipeline — there is nothing to run. It points at `/plan-app` → `/grill-with-docs` → `/to-spec` → `/to-tickets` first, and `zen doctor` re-reads the repo's state every time to print the step you are actually on. **Symlink it, never copy it** — the script resolves its own location back through the link to find `templates/`, and a copy has no way to reach them. It refuses to write anything at all rather than half-render if it cannot.
 
+### Windows
+
+Install [Git for Windows](https://git-scm.com/download/win), open PowerShell, and run:
+
+```powershell
+irm https://raw.githubusercontent.com/o0asd0o/ZenChain/main/install.ps1 | iex
+```
+
+The installer clones ZenChain into `%LOCALAPPDATA%\ZenChain`, creates `zen.cmd` and `zen.ps1` in `%USERPROFILE%\bin`, and adds that directory to your user `PATH`. Open a new terminal, then run `zen doctor`. The command uses Git Bash under the hood; pure PowerShell execution is not supported because ZenChain is a Bash pipeline.
+
 ## What gets installed
 
 | Path                                | What it is                                                      |
