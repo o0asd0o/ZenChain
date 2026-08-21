@@ -159,6 +159,30 @@ for combo in "${combos[@]}"; do
   grep -q 'not your verdict' "$im" \
     || { echo "FAIL  $name — implementer self-check is not marked as non-authoritative"; fail=1; }
 
+  # Scope is rigid; solution method is not. The builder must have room to
+  # compare approaches without creating planning artifacts or inventing work.
+  grep -q 'ticket defines what must be true, not the exact implementation' "$im" \
+    || { echo "FAIL  $name — implementer treats the ticket as an implementation recipe"; fail=1; }
+  grep -q '2–3 viable approaches' "$im" \
+    || { echo "FAIL  $name — implementer has no bounded solution pass"; fail=1; }
+  grep -q 'smallest coherent solution' "$im" \
+    || { echo "FAIL  $name — implementer still optimises for the smallest literal patch"; fail=1; }
+  grep -q 'Do not write this comparison to a file' "$im" \
+    || { echo "FAIL  $name — implementer may create solution-option documentation"; fail=1; }
+
+  fx="$dir/.claude/agents/fixer.md"; [[ -f "$fx" ]] || fx="$dir/.orc2/agents/fixer.md"
+  grep -q 'finding defines the defect and required outcome' "$fx" \
+    || { echo "FAIL  $name — fixer treats reviewer wording as a literal patch recipe"; fail=1; }
+  grep -q 'suggested fix is non-binding' "$fx" \
+    || { echo "FAIL  $name — fixer cannot choose a stronger compliant repair"; fail=1; }
+  grep -q 'reshape the touched seam' "$fx" \
+    || { echo "FAIL  $name — fixer cannot remove patchwork inside the finding scope"; fail=1; }
+
+  grep -q 'FIX states the required outcome' "$rv" \
+    || { echo "FAIL  $name — reviewer FIX field still prescribes implementation"; fail=1; }
+  grep -q 'Do not prescribe exact code' "$rv" \
+    || { echo "FAIL  $name — reviewer may cage the fixer's solution"; fail=1; }
+
   # A repo with no tickets must not be told to run the pipeline. That suggestion
   # was the original bug: `orc2 init` printed /run-prd on an empty repo, where
   # nothing had yet decided what to build.
@@ -216,6 +240,8 @@ for combo in "${combos[@]}"; do
       || { echo "FAIL  $name — rule 5 lost its default"; fail=1; }
     grep -q 'is not a finding you may raise' "$rv" \
       || { echo "FAIL  $name — reviewer may still demand explanatory comments"; fail=1; }
+    grep -q 'smallest coherent change surface' "$cs" \
+      || { echo "FAIL  $name — standards still reward fewest-files patchwork"; fail=1; }
   fi
   grep -q 'One component per file' "$dir/AGENTS.md" 2>/dev/null \
     && { echo "FAIL  $name — the standards are inlined in AGENTS.md; they must be a pointer"; fail=1; }
@@ -249,6 +275,26 @@ for combo in "${combos[@]}"; do
     || { echo "FAIL  $name — reviewer missing issue-authorised technical changes"; fail=1; }
   grep -q 'You do not choose dependencies' "$dir"/{.claude,.orc2}/agents/implementer.md 2>/dev/null \
     || { echo "FAIL  $name — implementer missing the dependency ladder"; fail=1; }
+
+  # Lo-fi is an intent boundary, not a pixel cage. Ordinary visual craft stays
+  # with the builder; only product meaning crosses the human decision boundary.
+  lf="$sk/lofi-to-code/SKILL.md"
+  if [[ -f "$lf" ]]; then
+    grep -q '^## Creative surface$' "$lf" \
+      || { echo "FAIL  $name — lofi-to-code has no explicit creative surface"; fail=1; }
+    grep -q '2–3 viable visual directions' "$lf" \
+      || { echo "FAIL  $name — lofi-to-code does not compare visual directions"; fail=1; }
+    grep -q 'Do not create a design-options file' "$lf" \
+      || { echo "FAIL  $name — lofi-to-code may emit design-option documentation"; fail=1; }
+    grep -q 'Ordinary craft decisions are yours' "$lf" \
+      || { echo "FAIL  $name — lofi-to-code escalates ordinary craft"; fail=1; }
+    grep -q 'The gaps are not yours to fill' "$lf" \
+      && { echo "FAIL  $name — lofi-to-code still forbids filling visual gaps"; fail=1; }
+    grep -q 'Craft decisions are not blockers' "$orch" \
+      || { echo "FAIL  $name — lo-fi triage still blocks on ordinary craft"; fail=1; }
+    grep -q 'visual coherence' "$orch" \
+      || { echo "FAIL  $name — lo-fi QA has no craft quality floor"; fail=1; }
+  fi
 
   # The compatible role id remains decider, but the role is a read-only advisor.
   dc="$dir/.claude/agents/decider.md"; [[ -f "$dc" ]] || dc="$dir/.orc2/agents/decider.md"
