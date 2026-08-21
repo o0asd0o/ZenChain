@@ -29,6 +29,7 @@ PASS  role reviewer (.claude/agents)
 PASS  ticket readiness checker present
 PASS  anti-slop enforcement ready — PASS anti-slop not applicable (no package.json)
 PASS  Agent skills block routes both local modifiers
+PASS  harness adapter claude ready
 PASS  git repository (worktrees available)
 
 P  install usable

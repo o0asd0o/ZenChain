@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# ZenChain harness adapter: pi CLI.
+set -euo pipefail
+
+if [[ "${1:-}" == --check ]]; then
+  command -v pi >/dev/null 2>&1
+  exit $?
+fi
+
+: "${ZENCHAIN_AGENT_SYSTEM_FILE:?missing ZENCHAIN_AGENT_SYSTEM_FILE}"
+: "${ZENCHAIN_AGENT_PROMPT_FILE:?missing ZENCHAIN_AGENT_PROMPT_FILE}"
+args=(-p --no-session --append-system-prompt "$ZENCHAIN_AGENT_SYSTEM_FILE")
+[[ -n "${ZENCHAIN_AGENT_MODEL:-}" && "${ZENCHAIN_AGENT_MODEL}" != inherit ]] && args+=(--model "$ZENCHAIN_AGENT_MODEL")
+[[ -n "${ZENCHAIN_AGENT_TOOLS:-}" ]] && args+=(--tools "$ZENCHAIN_AGENT_TOOLS")
+[[ -n "${ZENCHAIN_AGENT_EFFORT:-}" && "${ZENCHAIN_AGENT_MODEL}" != *:* ]] && args+=(--thinking "$ZENCHAIN_AGENT_EFFORT")
+pi "${args[@]}" "$(cat "$ZENCHAIN_AGENT_PROMPT_FILE")"

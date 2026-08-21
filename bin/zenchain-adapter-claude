@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# ZenChain harness adapter: Claude Code.
+set -euo pipefail
+
+if [[ "${1:-}" == --check ]]; then
+  command -v claude >/dev/null 2>&1
+  exit $?
+fi
+
+: "${ZENCHAIN_AGENT_SYSTEM_FILE:?missing ZENCHAIN_AGENT_SYSTEM_FILE}"
+: "${ZENCHAIN_AGENT_PROMPT_FILE:?missing ZENCHAIN_AGENT_PROMPT_FILE}"
+args=(-p --append-system-prompt "$(cat "$ZENCHAIN_AGENT_SYSTEM_FILE")")
+[[ -n "${ZENCHAIN_AGENT_MODEL:-}" && "${ZENCHAIN_AGENT_MODEL}" != inherit ]] && args+=(--model "$ZENCHAIN_AGENT_MODEL")
+[[ -n "${ZENCHAIN_AGENT_TOOLS:-}" ]] && args+=(--allowedTools "$ZENCHAIN_AGENT_TOOLS")
+[[ -n "${ZENCHAIN_AGENT_EFFORT:-}" ]] && args+=(--effort "$ZENCHAIN_AGENT_EFFORT")
+claude "${args[@]}" "$(cat "$ZENCHAIN_AGENT_PROMPT_FILE")"

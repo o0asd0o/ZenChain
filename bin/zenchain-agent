@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
-# zenchain-agent — run a role prompt as a headless agent on whichever backend the
-# project configured. Installed into <repo>/.zenchain/bin/ by `zenchain init`.
+# zenchain-agent — dispatch a normalized role request through a harness adapter.
 #
-# Usage: zenchain-agent <role> [--cwd DIR] [--backend claude|codex|pi] <prompt...>
+# Usage: zenchain-agent <role> [--cwd DIR] [--backend NAME] <prompt...>
 #        echo "$LONG_PROMPT" | zenchain-agent explorer
 #
-# The role's model, tools, and system prompt come from .zenchain/agents/<role>.md —
-# never hardcoded here. To change a role's model, edit that file's `model:` line.
+# Adapters receive ZENCHAIN_AGENT_* environment variables. Built-in adapters are
+# aliases; any executable named zenchain-adapter-NAME can implement the contract.
 #
 # Exit codes: 0 report on stdout · 2 usage/config error · 3 backend produced
 # nothing (see EMPTY OUTPUT below).
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CONFIG="$REPO_ROOT/.zenchain/config.env"
 [[ -f "$CONFIG" ]] && { set -a; . "$CONFIG"; set +a; }
 
-ROLE="${1:?usage: zenchain-agent <role> [--cwd DIR] [--backend B] <prompt...>}"; shift
+ROLE="${1:?usage: zenchain-agent <role> [--cwd DIR] [--backend NAME] <prompt...>}"; shift
 CWD="$REPO_ROOT"; BACKEND=""
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
@@ -26,8 +26,18 @@ while [[ "${1:-}" == --* ]]; do
   esac
 done
 
-AGENT_FILE="$REPO_ROOT/.zenchain/agents/$ROLE.md"
-[[ -f "$AGENT_FILE" ]] || { echo "zenchain-agent: no role file $AGENT_FILE" >&2; exit 2; }
+ROLE_DIRS=()
+for configured in "${ZENCHAIN_ROLE_DIR:-}" "${ZENCHAIN_MECH_ROLE_DIR:-}" "${ZENCHAIN_RUNNER_ROLE_DIR:-}" ".zenchain/agents" ".claude/agents"; do
+  [[ -n "$configured" ]] || continue
+  [[ " ${ROLE_DIRS[*]-} " == *" $configured "* ]] || ROLE_DIRS+=("$configured")
+done
+AGENT_FILE=""
+for role_dir in "${ROLE_DIRS[@]}"; do
+  candidate="$role_dir/$ROLE.md"
+  [[ "$candidate" = /* ]] || candidate="$REPO_ROOT/$candidate"
+  if [[ -f "$candidate" ]]; then AGENT_FILE="$candidate"; break; fi
+done
+[[ -n "$AGENT_FILE" ]] || { echo "zenchain-agent: no role file for '$ROLE' in ${ROLE_DIRS[*]}" >&2; exit 2; }
 
 PROMPT="$*"
 [[ -z "$PROMPT" && ! -t 0 ]] && PROMPT="$(cat)"
@@ -37,24 +47,13 @@ PROMPT="$*"
 # after the second --- is the system prompt.
 MODEL="$(sed -n '/^---$/,/^---$/p' "$AGENT_FILE" | sed -n 's/^model:[[:space:]]*//p' | head -1)"
 TOOLS="$(sed -n '/^---$/,/^---$/p' "$AGENT_FILE" | sed -n 's/^tools:[[:space:]]*//p' | head -1 | tr -d ' ')"
-# Reasoning effort is pinned per role — implementer and fixer at medium because
-# the issue already specifies the work, the judgement roles at high. The bridge
-# used to read model and tools but not this, so every role dispatched through it
-# silently ran at the backend's default. Each CLI spells it differently.
 EFFORT="$(sed -n '/^---$/,/^---$/p' "$AGENT_FILE" | sed -n 's/^effort:[[:space:]]*//p' | head -1 | tr -d ' ')"
 EFFORT="${ZENCHAIN_AGENT_EFFORT:-$EFFORT}"
-# Only the FIRST TWO `---` lines close the frontmatter. Counting every one of
-# them drops a horizontal rule inside the role body out of the system prompt.
 BODY="$(awk 'BEGIN{n=0} n<2 && /^---$/{n++; next} n>=2{print}' "$AGENT_FILE")"
 
-# ZENCHAIN_AGENT_MODEL overrides the frontmatter for one run — model A/B without
-# editing the role file.
 MODEL="${ZENCHAIN_AGENT_MODEL:-$MODEL}"
-# `inherit` means "whatever the backend is configured to use" — pass no flag.
 [[ "$MODEL" == inherit || "$MODEL" == default ]] && MODEL=""
 
-# Mechanical roles default to the mechanical backend, judgement roles to the
-# orchestrator's own. --backend wins over both.
 if [[ -z "$BACKEND" ]]; then
   case "$ROLE" in
     implementer|fixer|explorer) BACKEND="${ZENCHAIN_RUNNER_MECH:-claude}" ;;
@@ -63,41 +62,38 @@ if [[ -z "$BACKEND" ]]; then
 fi
 
 SYS_FILE="$(mktemp -t zenchain-agent-sys.XXXXXX)"
+PROMPT_FILE="$(mktemp -t zenchain-agent-prompt.XXXXXX)"
 OUT_FILE="$(mktemp -t zenchain-agent-out.XXXXXX)"
-trap 'rm -f "$SYS_FILE" "$OUT_FILE"' EXIT
+trap 'rm -f "$SYS_FILE" "$PROMPT_FILE" "$OUT_FILE"' EXIT
 printf '%s\n' "$BODY" >"$SYS_FILE"
+printf '%s\n' "$PROMPT" >"$PROMPT_FILE"
+
+ADAPTER_PREFIX="${ZENCHAIN_ADAPTER_PREFIX:-zenchain-adapter-}"
+ADAPTER_DIR="${ZENCHAIN_ADAPTER_DIR:-.zenchain/adapters}"
+ADAPTER=""
+if [[ "$ADAPTER_DIR" = /* ]]; then
+  [[ -x "$ADAPTER_DIR/$BACKEND" ]] && ADAPTER="$ADAPTER_DIR/$BACKEND"
+else
+  [[ -x "$REPO_ROOT/$ADAPTER_DIR/$BACKEND" ]] && ADAPTER="$REPO_ROOT/$ADAPTER_DIR/$BACKEND"
+fi
+if [[ -z "$ADAPTER" && -x "$SCRIPT_DIR/$ADAPTER_PREFIX$BACKEND" ]]; then
+  ADAPTER="$SCRIPT_DIR/$ADAPTER_PREFIX$BACKEND"
+fi
+[[ -n "$ADAPTER" ]] || ADAPTER="$(command -v "$ADAPTER_PREFIX$BACKEND" 2>/dev/null || true)"
+[[ -x "$ADAPTER" ]] || { echo "zenchain-agent: no adapter for '$BACKEND' (expected ${ADAPTER_PREFIX}${BACKEND})" >&2; exit 2; }
 
 cd "$CWD"
 set +e
-case "$BACKEND" in
-  pi)
-    ARGS=(-p --no-session --append-system-prompt "$SYS_FILE")
-    [[ -n "$MODEL" ]] && ARGS+=(--model "$MODEL")
-    [[ -n "$TOOLS" ]] && ARGS+=(--tools "$TOOLS")
-    # pi calls it thinking. A model pattern may also carry a `:<level>` suffix;
-    # that wins, so do not add the flag as well and have them disagree.
-    [[ -n "$EFFORT" && "$MODEL" != *:* ]] && ARGS+=(--thinking "$EFFORT")
-    pi "${ARGS[@]}" "$PROMPT" >"$OUT_FILE" 2>&1
-    ;;
-  claude)
-    ARGS=(-p --append-system-prompt "$(cat "$SYS_FILE")")
-    [[ -n "$MODEL" ]] && ARGS+=(--model "$MODEL")
-    [[ -n "$TOOLS" ]] && ARGS+=(--allowedTools "$TOOLS")
-    [[ -n "$EFFORT" ]] && ARGS+=(--effort "$EFFORT")
-    claude "${ARGS[@]}" "$PROMPT" >"$OUT_FILE" 2>&1
-    ;;
-  codex)
-    # Codex exec has no system-prompt flag, so the role prompt is prepended to
-    # the task. Keep the separator — it is what stops the model reading its own
-    # instructions as part of the task.
-    ARGS=(exec --cd "$CWD" "${ZENCHAIN_CODEX_APPROVAL:---full-auto}")
-    [[ -n "$MODEL" ]] && ARGS+=(-m "$MODEL")
-    # Codex takes it as a config override rather than a flag.
-    [[ -n "$EFFORT" ]] && ARGS+=(-c "model_reasoning_effort=\"$EFFORT\"")
-    codex "${ARGS[@]}" "$(printf '%s\n\n===== TASK =====\n\n%s\n' "$BODY" "$PROMPT")" >"$OUT_FILE" 2>&1
-    ;;
-  *) echo "zenchain-agent: unknown backend '$BACKEND'" >&2; exit 2 ;;
-esac
+ZENCHAIN_AGENT_ROLE="$ROLE" \
+ZENCHAIN_AGENT_CWD="$CWD" \
+ZENCHAIN_AGENT_MODEL="$MODEL" \
+ZENCHAIN_AGENT_TOOLS="$TOOLS" \
+ZENCHAIN_AGENT_EFFORT="$EFFORT" \
+ZENCHAIN_AGENT_SYSTEM_FILE="$SYS_FILE" \
+ZENCHAIN_AGENT_PROMPT_FILE="$PROMPT_FILE" \
+ZENCHAIN_AGENT_REPO_ROOT="$REPO_ROOT" \
+ZENCHAIN_AGENT_BACKEND="$BACKEND" \
+  "$ADAPTER" >"$OUT_FILE" 2>&1
 STATUS=$?
 set -e
 

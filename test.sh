@@ -45,6 +45,9 @@ else
   echo "FAIL  README lacks Windows installation instructions"; fail=1
 fi
 bash -n "$ZENCHAIN_HOME/bin/zenchain-agent" || { echo "FAIL  zenchain-agent has a syntax error"; exit 1; }
+bash -n "$ZENCHAIN_HOME/bin/zenchain-adapter-claude" || { echo "FAIL  Claude harness adapter has a syntax error"; exit 1; }
+bash -n "$ZENCHAIN_HOME/bin/zenchain-adapter-codex" || { echo "FAIL  Codex harness adapter has a syntax error"; exit 1; }
+bash -n "$ZENCHAIN_HOME/bin/zenchain-adapter-pi" || { echo "FAIL  Pi harness adapter has a syntax error"; exit 1; }
 bash -n "$ZENCHAIN_HOME/bin/zenchain-ticket-check" || { echo "FAIL  zenchain-ticket-check has a syntax error"; exit 1; }
 if [[ -f "$ZENCHAIN_HOME/bin/zenchain-anti-slop-check" ]]; then
   bash -n "$ZENCHAIN_HOME/bin/zenchain-anti-slop-check" || { echo "FAIL  zenchain-anti-slop-check has a syntax error"; exit 1; }
@@ -850,6 +853,7 @@ printf '%s\n' \
   >"$d/custom.env"
 mock="$WORK/stubbin/zenchain-adapter-mock"
 printf '%s\n' '#!/usr/bin/env bash' \
+  '[[ "${1:-}" == --check ]] && exit 0' \
   'printf "ROLE=%s\nCWD=%s\nMODEL=%s\nEFFORT=%s\n" "$ZENCHAIN_AGENT_ROLE" "$ZENCHAIN_AGENT_CWD" "$ZENCHAIN_AGENT_MODEL" "$ZENCHAIN_AGENT_EFFORT"' \
   'printf "PROMPT="; cat "$ZENCHAIN_AGENT_PROMPT_FILE"' >"$mock"
 chmod +x "$mock"
@@ -857,7 +861,7 @@ PATH="$WORK/stubbin:$PATH" "$ZENCHAIN_HOME/zen" init "$d" --answers "$d/custom.e
 [[ -f "$d/.mock/roles/reviewer.md" && -f "$d/.mock/roles/implementer.md" ]] \
   && echo "PASS  custom harness role directory is configurable" \
   || { echo "FAIL  custom harness role directory was ignored"; fail=1; }
-[[ -f "$d/.mock/prompts/run-prd.md" && -f "$d/.mock/skills/plan-app/SKILL.md" ]] \
+[[ -f "$d/.mock/prompts/run-prd.md" && -f "$d/.mock/skills/implement/SKILL.md" ]] \
   && echo "PASS  custom harness entry and skill directories are configurable" \
   || { echo "FAIL  custom harness entry or skill directory was ignored"; fail=1; }
 custom_out="$(cd "$d" && PATH="$WORK/stubbin:$PATH" .zenchain/bin/zenchain-agent implementer "custom prompt" 2>&1 || true)"

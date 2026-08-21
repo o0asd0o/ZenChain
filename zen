@@ -141,14 +141,26 @@ interview() {
   ask_choice ZENCHAIN_RUNNER \
     "Which CLI runs the orchestrator and the judgement roles (reviewer, qa, decider)?" claude \
     "claude — Claude Code; roles are native subagents in .claude/agents/" \
-    "codex  — Codex CLI; roles are dispatched headlessly through the ZenChain bridge"
+    "codex  — Codex CLI; roles are dispatched headlessly through the ZenChain bridge" \
+    "custom — an executable zenchain-adapter-<name> supplied by your harness"
 
   ask_choice ZENCHAIN_RUNNER_MECH \
     "Which backend runs the mechanical roles (implementer, fixer, explorer)?" same \
     "same  — the same CLI as above (simplest; one bill, one toolchain)" \
     "pi    — pi CLI on cheap external models, via the ZenChain bridge" \
-    "codex — Codex CLI, via the ZenChain bridge"
+    "codex — Codex CLI, via the ZenChain bridge" \
+    "custom — an executable zenchain-adapter-<name> supplied by your harness"
   [[ "$ZENCHAIN_RUNNER_MECH" == same ]] && ZENCHAIN_RUNNER_MECH="$ZENCHAIN_RUNNER" && export ZENCHAIN_RUNNER_MECH
+
+  if [[ "$ZENCHAIN_RUNNER" == custom || "$ZENCHAIN_RUNNER_MECH" == custom ]]; then
+    ask ZENCHAIN_ADAPTER_PREFIX "Adapter executable prefix" "zenchain-adapter-"
+    ask ZENCHAIN_ROLE_DIR "Shared role prompt directory" ".zenchain/agents"
+    ask ZENCHAIN_ENTRYPOINT_DIR "Harness entrypoint directory" ".zenchain/prompts"
+    ask ZENCHAIN_SKILL_DIR "Harness skill directory" ".zenchain/skills"
+    ask_choice ZENCHAIN_SKILLS_MODE "How does this harness expose skills?" vendored \
+      "native   — `/name` is a native harness skill invocation" \
+      "vendored — roles read the generated SKILL.md files by path"
+  fi
 
   head2 "Models"
   if [[ "$ZENCHAIN_RUNNER" == claude ]]; then
@@ -368,6 +380,20 @@ derive() {
   : "${ZENCHAIN_DESIGN:=none}" "${ZENCHAIN_TRACKER:=scratch}" "${ZENCHAIN_NOTIFY:=none}"
   : "${ZENCHAIN_RUNNER:=claude}" "${ZENCHAIN_RUNNER_MECH:=$ZENCHAIN_RUNNER}"
   : "${ZENCHAIN_MAIN_BRANCH:=main}" "${ZENCHAIN_WORKTREE_DIR:=.worktrees}" "${ZENCHAIN_PIPELINE_DIR:=.zenchain}"
+  : "${ZENCHAIN_ADAPTER_PREFIX:=zenchain-adapter-}" "${ZENCHAIN_ADAPTER_DIR:=.zenchain/adapters}"
+  if [[ -n "${ZENCHAIN_ROLE_DIR:-}" ]]; then
+    : "${ZENCHAIN_RUNNER_ROLE_DIR:=$ZENCHAIN_ROLE_DIR}" "${ZENCHAIN_MECH_ROLE_DIR:=$ZENCHAIN_ROLE_DIR}"
+  fi
+  : "${ZENCHAIN_RUNNER_ROLE_DIR:=$([[ "$ZENCHAIN_RUNNER" == claude ]] && echo .claude/agents || echo .zenchain/agents)}"
+  : "${ZENCHAIN_MECH_ROLE_DIR:=$([[ "$ZENCHAIN_RUNNER_MECH" == claude ]] && echo .claude/agents || echo .zenchain/agents)}"
+  if [[ -z "${ZENCHAIN_ENTRYPOINT_DIR:-}" ]]; then
+    case "$ZENCHAIN_RUNNER" in
+      claude) ZENCHAIN_ENTRYPOINT_DIR=".claude/skills" ;;
+      codex)  ZENCHAIN_ENTRYPOINT_DIR=".codex/prompts" ;;
+      *)      ZENCHAIN_ENTRYPOINT_DIR=".zenchain/prompts" ;;
+    esac
+  fi
+  : "${ZENCHAIN_SKILL_DIR:=$([[ "$ZENCHAIN_RUNNER" == claude ]] && echo .claude/skills || echo .zenchain/skills)}"
   : "${ZENCHAIN_A11Y:=WCAG 2.2 AA}" "${ZENCHAIN_PROJECT:=$(basename "$TARGET")}"
   : "${ZENCHAIN_MODEL_BUILD:=}" "${ZENCHAIN_MODEL_JUDGE:=}" "${ZENCHAIN_MODEL_GATE:=}" "${ZENCHAIN_MODEL_SCAN:=}"
   : "${ZENCHAIN_FIGMA_FILE_KEY:=}" "${ZENCHAIN_FIGMA_ROOT_NODE:=}" "${ZENCHAIN_LOFI_DIR:=design/lofi}"
@@ -409,6 +435,8 @@ derive() {
   export ZENCHAIN_SKILLS_REPO ZENCHAIN_SKILLS_PIN ZENCHAIN_AGENTS_FILE
   export ZENCHAIN_DB ZENCHAIN_CODEGEN ZENCHAIN_LANES ZENCHAIN_ROUND_CAP ZENCHAIN_DESIGN ZENCHAIN_TRACKER ZENCHAIN_NOTIFY \
          ZENCHAIN_RUNNER ZENCHAIN_RUNNER_MECH ZENCHAIN_MAIN_BRANCH ZENCHAIN_WORKTREE_DIR ZENCHAIN_PIPELINE_DIR \
+         ZENCHAIN_ADAPTER_PREFIX ZENCHAIN_ADAPTER_DIR ZENCHAIN_ROLE_DIR ZENCHAIN_RUNNER_ROLE_DIR ZENCHAIN_MECH_ROLE_DIR \
+         ZENCHAIN_ENTRYPOINT_DIR ZENCHAIN_SKILL_DIR \
          ZENCHAIN_A11Y ZENCHAIN_PROJECT ZENCHAIN_MODEL_BUILD ZENCHAIN_MODEL_JUDGE ZENCHAIN_MODEL_GATE ZENCHAIN_MODEL_SCAN \
          ZENCHAIN_FIGMA_FILE_KEY ZENCHAIN_FIGMA_ROOT_NODE ZENCHAIN_LOFI_DIR ZENCHAIN_DEV_DB ZENCHAIN_LANE_PREFIX \
          ZENCHAIN_DB_URI_VAR ZENCHAIN_CODEGEN_CMD ZENCHAIN_MIGRATE_CMD ZENCHAIN_MIGRATE_STATUS_CMD \
@@ -452,12 +480,13 @@ derive() {
   [[ -z "$ZENCHAIN_MODEL_SCAN"  ]] && export ZENCHAIN_MODEL_SCAN=inherit
 
   # Can the backend running the implementer discover a skill by name?
-  export ZENCHAIN_SKILLS_MODE="$([[ "$ZENCHAIN_RUNNER_MECH" == claude ]] && echo native || echo vendored)"
+  : "${ZENCHAIN_SKILLS_MODE:=$([[ "$ZENCHAIN_RUNNER_MECH" == claude ]] && echo native || echo vendored)}"
+  export ZENCHAIN_SKILLS_MODE
   # Where skills actually land — keyed off ZENCHAIN_RUNNER, because that is what
   # do_render keys SKILLDIR off. The vendored-path fragment must cite this and
   # not a guess: runner=claude + mech=pi puts skills in .claude/skills while the
   # fragment used to name .zenchain/skills, so every cited path dangled.
-  export ZENCHAIN_SKILLS_DIR="$([[ "$ZENCHAIN_RUNNER" == claude ]] && echo ".claude/skills" || echo ".zenchain/skills")"
+  export ZENCHAIN_SKILLS_DIR="$ZENCHAIN_SKILL_DIR"
   # How a role reaches a skill named as `/name`. On a backend with no skill
   # mechanism the name alone is a dangling reference, so cite the vendored path.
   if [[ "$ZENCHAIN_SKILLS_MODE" == native ]]; then
@@ -468,15 +497,15 @@ derive() {
   # How a role reaches `explorer`. Native subagent, or the bridge — the role
   # prompts say "spawn the explorer", which is unactionable on a backend that
   # has no subagent mechanism unless it is told the command.
-  if [[ "$ZENCHAIN_RUNNER_MECH" == claude ]]; then
+  if [[ "$ZENCHAIN_MECH_ROLE_DIR" == .claude/agents && "$ZENCHAIN_RUNNER_MECH" == claude ]]; then
     export ZENCHAIN_EXPLORER_HOW="Spawn the \`explorer\` subagent with the \`Agent\` tool."
   else
     export ZENCHAIN_EXPLORER_HOW="Run \`.zenchain/bin/zenchain-agent explorer \"<one bounded question>\"\` with the shell — this backend has no subagent mechanism, so that command IS the explorer."
   fi
 
   # Which roles run outside the orchestrator's own CLI.
-  if   [[ "$ZENCHAIN_RUNNER" != claude ]];      then export ZENCHAIN_DELEGATION="bridge-all"
-  elif [[ "$ZENCHAIN_RUNNER_MECH" != claude ]]; then export ZENCHAIN_DELEGATION="bridge-mech"
+  if   [[ "$ZENCHAIN_RUNNER_ROLE_DIR" != .claude/agents ]]; then export ZENCHAIN_DELEGATION="bridge-all"
+  elif [[ "$ZENCHAIN_MECH_ROLE_DIR" != .claude/agents ]];   then export ZENCHAIN_DELEGATION="bridge-mech"
   else                                          export ZENCHAIN_DELEGATION="native"; fi
 
   if [[ "$ZENCHAIN_LANES" == 1 ]]; then
@@ -634,22 +663,25 @@ do_render() {
   cp "$ZENCHAIN_HOME/bin/zenchain-anti-slop-check" "$TARGET/.zenchain/bin/zenchain-anti-slop-check"
   chmod +x "$TARGET/.zenchain/bin/zenchain-anti-slop-check"
   say "  wrote .zenchain/bin/zenchain-anti-slop-check"
+  for adapter in "$ZENCHAIN_HOME"/bin/zenchain-adapter-*; do
+    [[ -f "$adapter" ]] || continue
+    cp "$adapter" "$TARGET/.zenchain/bin/"
+    chmod +x "$TARGET/.zenchain/bin/$(basename "$adapter")"
+  done
 
   # Role prompts — native location for the runner that spawns them.
   local role
   for role in reviewer qa decider; do
-    if [[ "$ZENCHAIN_RUNNER" == claude ]]; then write_out "$TPL/agents/$role.md" "$TARGET/.claude/agents/$role.md"
-    else                                    write_out "$TPL/agents/$role.md" "$TARGET/.zenchain/agents/$role.md"; fi
+    write_out "$TPL/agents/$role.md" "$TARGET/$ZENCHAIN_RUNNER_ROLE_DIR/$role.md"
   done
   for role in implementer fixer explorer; do
-    if [[ "$ZENCHAIN_RUNNER_MECH" == claude ]]; then write_out "$TPL/agents/$role.md" "$TARGET/.claude/agents/$role.md"
-    else                                        write_out "$TPL/agents/$role.md" "$TARGET/.zenchain/agents/$role.md"; fi
+    write_out "$TPL/agents/$role.md" "$TARGET/$ZENCHAIN_MECH_ROLE_DIR/$role.md"
   done
 
   # Reference docs go where the runner can actually discover them. A CLI with no
   # skill mechanism gets plain files under .zenchain/skills/, cited by path.
   local SKILLDIR
-  if [[ "$ZENCHAIN_RUNNER" == claude ]]; then SKILLDIR="$TARGET/.claude/skills"; else SKILLDIR="$TARGET/.zenchain/skills"; fi
+  SKILLDIR="$TARGET/$ZENCHAIN_SKILL_DIR"
 
   # The bridge, whenever any role runs outside the orchestrator's own CLI.
   if [[ "$ZENCHAIN_RUNNER" != claude || "$ZENCHAIN_RUNNER_MECH" != claude ]]; then
@@ -662,15 +694,9 @@ do_render() {
 
   # Entry points. `plan-app` is the front door on a repo with nothing to run yet;
   # run-prd and run-issue are useless until it has produced tickets.
-  if [[ "$ZENCHAIN_RUNNER" == claude ]]; then
-    write_out "$TPL/skills/plan-app/SKILL.md"  "$TARGET/.claude/skills/plan-app/SKILL.md"
-    write_out "$TPL/skills/run-issue/SKILL.md" "$TARGET/.claude/skills/run-issue/SKILL.md"
-    write_out "$TPL/skills/run-prd/SKILL.md"   "$TARGET/.claude/skills/run-prd/SKILL.md"
-  else
-    write_out "$TPL/skills/plan-app/SKILL.md"  "$TARGET/.codex/prompts/plan-app.md"
-    write_out "$TPL/skills/run-issue/SKILL.md" "$TARGET/.codex/prompts/run-issue.md"
-    write_out "$TPL/skills/run-prd/SKILL.md"   "$TARGET/.codex/prompts/run-prd.md"
-  fi
+  write_out "$TPL/skills/plan-app/SKILL.md"  "$TARGET/$ZENCHAIN_ENTRYPOINT_DIR/$([[ "$ZENCHAIN_RUNNER" == claude ]] && echo plan-app/SKILL.md || echo plan-app.md)"
+  write_out "$TPL/skills/run-issue/SKILL.md" "$TARGET/$ZENCHAIN_ENTRYPOINT_DIR/$([[ "$ZENCHAIN_RUNNER" == claude ]] && echo run-issue/SKILL.md || echo run-issue.md)"
+  write_out "$TPL/skills/run-prd/SKILL.md"   "$TARGET/$ZENCHAIN_ENTRYPOINT_DIR/$([[ "$ZENCHAIN_RUNNER" == claude ]] && echo run-prd/SKILL.md || echo run-prd.md)"
 
   # Design skill, matched to the contract.
   case "$ZENCHAIN_DESIGN" in
@@ -867,7 +893,9 @@ intake_state() { # echoes: empty | specs-only | ready | building
 next_step() {
   local state cmd_prefix
   state="$(intake_state)"
-  if [[ "$ZENCHAIN_RUNNER" == claude ]]; then cmd_prefix="/"; else cmd_prefix="codex-prompt: "; fi
+  if [[ "$ZENCHAIN_RUNNER" == claude ]]; then cmd_prefix="/";
+  elif [[ "$ZENCHAIN_RUNNER" == codex ]]; then cmd_prefix="codex-prompt: ";
+  else cmd_prefix="prompt: "; fi
 
   step() { printf '  %-2s %-21s %s\n' "$1" "$2" "$3"; }
   cont() { printf '     %-21s %s\n' "" "$1"; }
@@ -913,7 +941,7 @@ next_step() {
       step "" "${cmd_prefix}run-issue <NN>"  "one issue, then stop"
       ;;
   esac
-  [[ "$ZENCHAIN_RUNNER" == claude ]] || say $'\nCodex has no slash commands: pass the file, e.g. codex "$(cat .codex/prompts/run-prd.md)".'
+  [[ "$ZENCHAIN_RUNNER" == claude ]] || say $'\nThis harness uses file-based entrypoints; pass the generated run-prd file to its command.'
 }
 
 # ------------------------------------------------------------------ skills ---
@@ -924,7 +952,8 @@ next_step() {
 # the global copy would point at a file that cannot be invoked.
 skill_where() { # skill_where <name> ; echoes <dir>|global|missing
   local s="$1" c
-  for c in "$TARGET/.claude/skills" "$TARGET/.zenchain/skills"; do
+  for c in "$TARGET/$ZENCHAIN_SKILL_DIR" "$TARGET/.claude/skills" "$TARGET/.zenchain/skills"; do
+    [[ -d "$c" ]] || continue
     [[ -d "$c/$s" ]] && { echo "${c#$TARGET/}"; return; }
   done
   [[ -d "$UPSTREAM_SKILLS/$s" ]] && { echo "global"; return; }
@@ -979,6 +1008,26 @@ do_skills() { # do_skills [--global]
 
 # ------------------------------------------------------------------ doctor ---
 
+adapter_command() { # adapter_command <name>; echoes its executable path
+  local name="$1" path
+  if [[ "$ZENCHAIN_ADAPTER_DIR" = /* ]]; then
+    path="$ZENCHAIN_ADAPTER_DIR/$name"
+  else
+    path="$TARGET/$ZENCHAIN_ADAPTER_DIR/$name"
+  fi
+  [[ -x "$path" ]] && { echo "$path"; return; }
+  path="$TARGET/.zenchain/bin/$ZENCHAIN_ADAPTER_PREFIX$name"
+  [[ -x "$path" ]] && { echo "$path"; return; }
+  command -v "$ZENCHAIN_ADAPTER_PREFIX$name" 2>/dev/null || true
+}
+
+adapter_ready() { # adapter_ready <name>
+  local name="$1" path
+  path="$(adapter_command "$name")"
+  [[ -n "$path" && -x "$path" ]] || return 1
+  "$path" --check >/dev/null 2>&1
+}
+
 do_doctor() {
   head2 "ZenChain doctor — $TARGET"
   local fail=0
@@ -991,18 +1040,24 @@ do_doctor() {
   [[ -f "$TARGET/$ZENCHAIN_PIPELINE_DIR/ORCHESTRATOR.md" ]] \
     && say "PASS  orchestrator present" || { say "FAIL  ORCHESTRATOR.md missing — run \`zen render\`"; fail=1; }
 
-  local role loc
+  local role loc role_dirs
   for role in implementer fixer explorer reviewer qa decider; do
     loc=""
-    [[ -f "$TARGET/.claude/agents/$role.md" ]] && loc=".claude/agents"
-    [[ -f "$TARGET/.zenchain/agents/$role.md" ]]    && loc="${loc:+$loc + }.zenchain/agents"
+    for role_dir in "$ZENCHAIN_RUNNER_ROLE_DIR" "$ZENCHAIN_MECH_ROLE_DIR" ".claude/agents" ".zenchain/agents"; do
+      role_path="$role_dir"; [[ "$role_path" = /* ]] || role_path="$TARGET/$role_path"
+      [[ -f "$role_path/$role.md" ]] && loc="${loc:+$loc + }${role_dir#$TARGET/}"
+    done
     [[ -n "$loc" ]] && say "PASS  role $role ($loc)" || { say "FAIL  role $role missing"; fail=1; }
   done
 
   local b
   for b in "$ZENCHAIN_RUNNER" "$ZENCHAIN_RUNNER_MECH"; do
-    command -v "$b" >/dev/null && say "PASS  backend CLI $b on PATH" \
-      || { say "FAIL  backend CLI $b not on PATH"; fail=1; }
+    if adapter_ready "$b"; then
+      say "PASS  harness adapter $b ready"
+    else
+      say "FAIL  harness adapter $b unavailable or failed --check"
+      fail=1
+    fi
   done
 
   # Scope IFS to the read only. A `local IFS=';'` here would stay in effect for

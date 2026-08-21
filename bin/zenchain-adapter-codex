@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# ZenChain harness adapter: Codex CLI.
+set -euo pipefail
+
+if [[ "${1:-}" == --check ]]; then
+  command -v codex >/dev/null 2>&1
+  exit $?
+fi
+
+: "${ZENCHAIN_AGENT_SYSTEM_FILE:?missing ZENCHAIN_AGENT_SYSTEM_FILE}"
+: "${ZENCHAIN_AGENT_PROMPT_FILE:?missing ZENCHAIN_AGENT_PROMPT_FILE}"
+args=(exec --cd "${ZENCHAIN_AGENT_CWD:?missing ZENCHAIN_AGENT_CWD}" "${ZENCHAIN_CODEX_APPROVAL:---full-auto}")
+[[ -n "${ZENCHAIN_AGENT_MODEL:-}" && "${ZENCHAIN_AGENT_MODEL}" != inherit ]] && args+=(-m "$ZENCHAIN_AGENT_MODEL")
+[[ -n "${ZENCHAIN_AGENT_EFFORT:-}" ]] && args+=(-c "model_reasoning_effort=\"$ZENCHAIN_AGENT_EFFORT\"")
+codex "${args[@]}" "$(printf '%s\n\n===== TASK =====\n\n%s\n' "$(cat "$ZENCHAIN_AGENT_SYSTEM_FILE")" "$(cat "$ZENCHAIN_AGENT_PROMPT_FILE")")"

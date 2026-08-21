@@ -11,7 +11,7 @@ This CLI has no native subagent mechanism, so every role runs as a fresh headles
 .zenchain/bin/zenchain-agent decider      "<the question, the issue path, the context>"
 ```
 
-The bridge reads each role's model, tools, and system prompt from `.zenchain/agents/<name>.md`; change a model by editing that file's `model:` line.
+The bridge reads each role's model, tools, and system prompt from `{{RUNNER_ROLE_DIR}}/<name>.md`; change a model by editing that file's `model:` line.
 
 Three consequences of headless dispatch you have to work around, because they are not optional:
 
@@ -22,4 +22,3 @@ Three consequences of headless dispatch you have to work around, because they ar
 **The bridge's output is a claim, not ground truth.** You still run the gate yourself, own every merge, and count the rounds.
 
 **An empty report is a dead dispatch.** The bridge exits 3 when a backend produces nothing, which happens on lost auth, exhausted credit, or a transport error. Fix the backend; do not respawn into the same wall, and never read silence as "nothing to do".
-

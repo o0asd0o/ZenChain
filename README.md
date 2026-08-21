@@ -31,7 +31,8 @@ The installer clones ZenChain into `%LOCALAPPDATA%\ZenChain`, creates `zen.cmd` 
 | `<pipeline-dir>/ORCHESTRATOR.md`    | the pipeline itself; the orchestrator reads this and follows it   |
 | `.claude/agents/*.md`               | role prompts, for roles running as native Claude subagents        |
 | `.zenchain/agents/*.md`                  | role prompts, for roles dispatched through the bridge             |
-| `.zenchain/bin/zenchain-agent`                | the bridge — runs a role headlessly on claude, codex, or pi       |
+| `.zenchain/bin/zenchain-agent`                | harness-neutral bridge; dispatches roles through an adapter         |
+| `.zenchain/bin/zenchain-adapter-*`            | built-in Claude, Codex, and Pi adapter aliases                    |
 | `.zenchain/bin/zenchain-ticket-check`         | tracker-neutral, fail-closed ticket readiness gate                |
 | `.zenchain/bin/zenchain-anti-slop-check`      | verifies enforced TypeScript/JavaScript anti-slop lint setup       |
 | `.claude/skills/run-issue`          | entry point: one issue, then stop                                 |
@@ -87,8 +88,8 @@ The separation is the point. The reviewer physically cannot fix, so "fix" can ne
 
 - **Tracker** — `scratch` (markdown issues in-repo, no remote) or `github` (issues + labels + `gh`)
 - **Design contract** — `figma` (pixel-exact, MCP extraction), `lofi` (mocks are intent; material gaps enter `docs/INBOX.md`), or `none`
-- **Runner** — `claude` (native subagents) or `codex` (headless dispatch through the bridge)
-- **Mechanical backend** — run implementer/fixer/explorer on the same CLI, or offload them to `pi` or `codex` on cheaper models
+- **Runner** — Claude, Codex, or a custom harness adapter for the orchestrator and judgement roles
+- **Mechanical backend** — the same adapter, or a separate Pi/Codex/custom adapter for implementer/fixer/explorer
 - **Models** — one per tier: build, judge, PRD-gate, scan
 - **The gate** — the commands the orchestrator runs itself, in order, as the only ground truth
 - **Anti-slop** — `enforced` by default for repositories with `package.json`, or explicitly `off`
@@ -105,6 +106,20 @@ Non-interactive: `zen init --answers my-answers.env`, or `zen init --yes` for de
 ## Prerequisites
 
 **None.** `zen init` fetches every skill it names, at a pinned commit, so a fresh machine with nothing installed is fully working — including the planning half (`/grill-with-docs`, `/to-spec`, `/to-tickets`, `/triage`, `/wayfinder`) that `plan-app` tells you to run.
+
+### Harness adapters
+
+The pipeline core does not depend on a particular agent CLI. The bridge sends
+each role through an adapter named `zenchain-adapter-<name>` (or an executable
+in `ZENCHAIN_ADAPTER_DIR`). The adapter receives the normalized request through
+`ZENCHAIN_AGENT_ROLE`, `ZENCHAIN_AGENT_CWD`, `ZENCHAIN_AGENT_MODEL`,
+`ZENCHAIN_AGENT_TOOLS`, `ZENCHAIN_AGENT_EFFORT`,
+`ZENCHAIN_AGENT_SYSTEM_FILE`, and `ZENCHAIN_AGENT_PROMPT_FILE`; it writes the
+role report to stdout and supports `--check` for `zen doctor`.
+
+Claude, Codex, and Pi are included as built-in adapters. A custom harness only
+needs to implement that contract and set `ZENCHAIN_RUNNER` / `ZENCHAIN_RUNNER_MECH`
+plus its role, entrypoint, and skill directories in the answers file.
 
 ```
 zen skills             # where each skill lives: a project path, global, or missing

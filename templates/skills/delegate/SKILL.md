@@ -5,7 +5,7 @@ description: Dispatch a pipeline role (implementer, fixer, explorer, reviewer, q
 
 # Delegate a role through the bridge
 
-The orchestrator (`{{PIPELINE_DIR}}/ORCHESTRATOR.md`) owns sequencing, the gate, the round cap, and every merge. Roles that run outside this CLI go through `.zenchain/bin/zenchain-agent`.
+The orchestrator (`{{PIPELINE_DIR}}/ORCHESTRATOR.md`) owns sequencing, the gate, the round cap, and every merge. Roles that run outside this CLI go through `.zenchain/bin/zenchain-agent`, which dispatches through the configured harness adapter.
 
 ## Invoke
 
@@ -26,7 +26,9 @@ Call it with the Bash tool.
 
 ## What the bridge does
 
-Reads `.zenchain/agents/<role>.md`, pulls `model` and `tools` from its frontmatter and the body as the system prompt, and runs the configured backend. The model is **never hardcoded in the bridge** — to change which model a role uses, edit the `model:` line in `.zenchain/agents/<role>.md`. Or set `ZENCHAIN_AGENT_MODEL` for a single run, to A/B a model without editing anything.
+Reads `{{MECH_ROLE_DIR}}/<role>.md`, pulls `model`, `tools`, and `effort` from its frontmatter, and sends a normalized request to the configured adapter. The model is **never hardcoded in the bridge** — edit the role's `model:` line, or set `ZENCHAIN_AGENT_MODEL` for one run.
+
+The adapter receives `ZENCHAIN_AGENT_ROLE`, `ZENCHAIN_AGENT_CWD`, `ZENCHAIN_AGENT_MODEL`, `ZENCHAIN_AGENT_TOOLS`, `ZENCHAIN_AGENT_EFFORT`, `ZENCHAIN_AGENT_SYSTEM_FILE`, and `ZENCHAIN_AGENT_PROMPT_FILE`. It writes the role report to stdout and supports `--check` for `zen doctor`.
 
 The backend's stdout is the agent's report. **Treat it as a claim, not ground truth.**
 
