@@ -7,6 +7,7 @@ git clone https://github.com/o0asd0o/ZenChain.git ~/.local/share/zenchain
 mkdir -p ~/.local/bin
 ln -sfn ~/.local/share/zenchain/zen ~/.local/bin/zen
 cd ~/code/my-project                   # then, from inside any project folder:
+zen skills --global                    # download Matt Pocock's skills once
 zen init                               # interview, then render
 zen doctor                             # check the install and its backends
 ```
@@ -105,7 +106,13 @@ Non-interactive: `zen init --answers my-answers.env`, or `zen init --yes` for de
 
 ## Prerequisites
 
-**None.** `zen init` fetches every skill it names, at a pinned commit, so a fresh machine with nothing installed is fully working — including the planning half (`/grill-with-docs`, `/to-spec`, `/to-tickets`, `/triage`, `/wayfinder`) that `plan-app` tells you to run.
+Before the first `zen init`, download [Matt Pocock's engineering skills](https://github.com/mattpocock/skills) into your global skills directory:
+
+```bash
+zen skills --global
+```
+
+This installs the planning skills (`/grill-with-docs`, `/to-spec`, `/to-tickets`, `/triage`, `/wayfinder`) and the agent-invocable skills used by the pipeline. It also prevents each project from carrying a separate copy that can quietly go stale. `zen init` can fetch missing skills at a pinned commit as a fallback, but the explicit download-first step is the recommended setup.
 
 ### Harness adapters
 
