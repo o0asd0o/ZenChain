@@ -14,7 +14,12 @@ fail=0
 bash -n "$ORC2_HOME/orc2"          || { echo "FAIL  orc2 has a syntax error"; exit 1; }
 bash -n "$ORC2_HOME/bin/orc2-agent" || { echo "FAIL  orc2-agent has a syntax error"; exit 1; }
 bash -n "$ORC2_HOME/bin/orc2-ticket-check" || { echo "FAIL  orc2-ticket-check has a syntax error"; exit 1; }
-echo "PASS  all scripts parse"
+if [[ -f "$ORC2_HOME/bin/orc2-anti-slop-check" ]]; then
+  bash -n "$ORC2_HOME/bin/orc2-anti-slop-check" || { echo "FAIL  orc2-anti-slop-check has a syntax error"; exit 1; }
+else
+  echo "FAIL  orc2-anti-slop-check source missing"; fail=1
+fi
+echo "PASS  existing scripts parse"
 
 # Every combination that changes which fragments get pulled in.
 combos=(
@@ -32,6 +37,7 @@ combos=(
   # does not. Rendered under a target directory whose basename has a dash.
   "my-zebra-shop|ORC2_DB=postgres ORC2_LANES=2"
   "sqlite-set-without-names|ORC2_DB=sqlite ORC2_LANES=2"
+  "anti-slop-off|ORC2_ANTI_SLOP=off"
 )
 
 for combo in "${combos[@]}"; do
@@ -56,6 +62,27 @@ for combo in "${combos[@]}"; do
   done
   [[ -x "$dir/.orc2/bin/orc2-ticket-check" ]] \
     || { echo "FAIL  $name — ticket readiness checker not rendered executable"; fail=1; }
+
+  # Anti-slop is enforced by default, but remains explicitly disableable for a
+  # repository whose TypeScript/JavaScript policy differs.
+  anti_slop="$(sed -n 's/^ORC2_ANTI_SLOP="\{0,1\}\([a-z]*\)"\{0,1\}$/\1/p' "$dir/.orc2/config.env" | head -1)"
+  expected_anti_slop=enforced; [[ "$name" == anti-slop-off ]] && expected_anti_slop=off
+  [[ "$anti_slop" == "$expected_anti_slop" ]] \
+    || { echo "FAIL  $name — anti-slop mode is '$anti_slop', expected '$expected_anti_slop'"; fail=1; }
+  [[ -x "$dir/.orc2/bin/orc2-anti-slop-check" ]] \
+    || { echo "FAIL  $name — anti-slop gate checker not rendered executable"; fail=1; }
+  orch="$(ls "$dir"/{.orc2,docs/pipeline}/ORCHESTRATOR.md 2>/dev/null | head -1 || true)"
+  if [[ "$anti_slop" == enforced ]]; then
+    grep -q '^\.orc2/bin/orc2-anti-slop-check$' "$orch" \
+      || { echo "FAIL  $name — enforced anti-slop is absent from the gate"; fail=1; }
+    grep -q '^## 6\. Anti-slop' "$dir/docs/agents/code-standards.md" \
+      || { echo "FAIL  $name — enforced anti-slop is absent from coding standards"; fail=1; }
+  else
+    grep -q '^\.orc2/bin/orc2-anti-slop-check$' "$orch" \
+      && { echo "FAIL  $name — disabled anti-slop still runs in the gate"; fail=1; }
+    grep -q '^## 6\. Anti-slop' "$dir/docs/agents/code-standards.md" \
+      && { echo "FAIL  $name — disabled anti-slop still renders coding standards"; fail=1; }
+  fi
 
   # An orchestrator that lost its gate block is useless and easy to break.
   grep -q 'You run the gate, not the agents' "$dir"/{.orc2,docs/pipeline}/ORCHESTRATOR.md 2>/dev/null \
@@ -286,6 +313,62 @@ elif "$checker" "$valid" >/dev/null 2>&1 \
   echo "PASS  ticket readiness rejects incomplete and accepts complete file/stdin packets"
 else
   echo "FAIL  complete ticket failed readiness"; fail=1
+fi
+
+# The anti-slop preflight is executable policy. It must verify the vendored
+# plugin, direct dependencies, configuration, lint gate, and optional Effect
+# group without applying TypeScript rules to non-JavaScript repositories.
+anti_checker="$ORC2_HOME/bin/orc2-anti-slop-check"
+if [[ ! -x "$anti_checker" ]]; then
+  echo "FAIL  anti-slop behavior checks unavailable — source checker missing"; fail=1
+else
+  d="$WORK/anti-slop-valid"; mkdir -p "$d/.orc2" "$d/tools/oxlint/anti-slop"
+  printf '%s\n' '{"devDependencies":{"oxlint":"1.78.0","@oxlint/plugins":"1.78.0"}}' >"$d/package.json"
+  printf '%s\n' 'export default { rules: { "anti-slop/no-chained-type-assertions": "error" } }' >"$d/oxlint.config.ts"
+  printf '%s\n' 'export const antiSlop = true' >"$d/tools/oxlint/anti-slop/index.ts"
+  printf '%s\n' 'ORC2_ANTI_SLOP="enforced"' 'ORC2_GATE="npm run lint; npm test"' >"$d/.orc2/config.env"
+  "$anti_checker" "$d" >/dev/null 2>&1 \
+    && echo "PASS  anti-slop accepts a complete JS/TS setup" \
+    || { echo "FAIL  anti-slop rejected a complete JS/TS setup"; fail=1; }
+
+  d="$WORK/anti-slop-missing"; mkdir -p "$d/.orc2"
+  printf '%s\n' '{"devDependencies":{"oxlint":"1.78.0","@oxlint/plugins":"1.78.0"}}' >"$d/package.json"
+  printf '%s\n' 'export default { rules: { "anti-slop/no-chained-type-assertions": "error" } }' >"$d/oxlint.config.ts"
+  printf '%s\n' 'ORC2_ANTI_SLOP="enforced"' 'ORC2_GATE="npm test"' >"$d/.orc2/config.env"
+  if "$anti_checker" "$d" >"$WORK/anti-slop-missing.log" 2>&1; then
+    echo "FAIL  anti-slop accepted missing plugin and lint gate"; fail=1
+  elif grep -q 'plugin source' "$WORK/anti-slop-missing.log" \
+    && grep -q 'lint command' "$WORK/anti-slop-missing.log"; then
+    echo "PASS  anti-slop rejects missing plugin and lint gate"
+  else
+    echo "FAIL  anti-slop missing-setup error is incomplete"; fail=1
+  fi
+
+  d="$WORK/anti-slop-effect"; mkdir -p "$d/.orc2" "$d/tools/oxlint/anti-slop"
+  printf '%s\n' '{"dependencies":{"effect":"3.0.0"},"devDependencies":{"oxlint":"1.78.0","@oxlint/plugins":"1.78.0"}}' >"$d/package.json"
+  printf '%s\n' 'export default { rules: { "anti-slop/no-chained-type-assertions": "error" } }' >"$d/oxlint.config.ts"
+  printf '%s\n' 'export const antiSlop = true' >"$d/tools/oxlint/anti-slop/index.ts"
+  printf '%s\n' 'ORC2_ANTI_SLOP="enforced"' 'ORC2_GATE="npm run lint"' >"$d/.orc2/config.env"
+  if "$anti_checker" "$d" >"$WORK/anti-slop-effect.log" 2>&1; then
+    echo "FAIL  anti-slop accepted missing Effect rule group"; fail=1
+  elif grep -q 'Effect' "$WORK/anti-slop-effect.log"; then
+    echo "PASS  direct Effect dependency requires the Effect rule group"
+  else
+    echo "FAIL  missing Effect rule group gave no actionable error"; fail=1
+  fi
+
+  d="$WORK/anti-slop-non-js"; mkdir -p "$d/.orc2"
+  printf '%s\n' 'ORC2_ANTI_SLOP="enforced"' 'ORC2_GATE="cargo test"' >"$d/.orc2/config.env"
+  "$anti_checker" "$d" >/dev/null 2>&1 \
+    && echo "PASS  anti-slop leaves non-JS repositories unaffected" \
+    || { echo "FAIL  anti-slop blocked a non-JS repository"; fail=1; }
+
+  d="$WORK/anti-slop-disabled"; mkdir -p "$d/.orc2"
+  printf '%s\n' '{"devDependencies":{}}' >"$d/package.json"
+  printf '%s\n' 'ORC2_ANTI_SLOP="off"' 'ORC2_GATE="npm test"' >"$d/.orc2/config.env"
+  "$anti_checker" "$d" >/dev/null 2>&1 \
+    && echo "PASS  explicit anti-slop off bypasses enforcement" \
+    || { echo "FAIL  anti-slop off still enforced"; fail=1; }
 fi
 
 # A re-render must preserve live INBOX content byte-for-byte.
