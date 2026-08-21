@@ -835,4 +835,39 @@ else
   echo "PASS  bridge rejects an unknown role"
 fi
 
+# A harness adapter is the only integration point the core should need. A
+# custom adapter must be able to receive the normalized role request without
+# teaching the bridge another vendor-specific flag vocabulary.
+d="$WORK/custom-harness"; mkdir -p "$d"; git -C "$d" init -q .
+printf '%s\n' \
+  'ZENCHAIN_RUNNER="mock"' \
+  'ZENCHAIN_RUNNER_MECH="mock"' \
+  'ZENCHAIN_ROLE_DIR=".mock/roles"' \
+  'ZENCHAIN_ENTRYPOINT_DIR=".mock/prompts"' \
+  'ZENCHAIN_SKILL_DIR=".mock/skills"' \
+  'ZENCHAIN_SKILLS_MODE="vendored"' \
+  'ZENCHAIN_ADAPTER_PREFIX="zenchain-adapter-"' \
+  >"$d/custom.env"
+mock="$WORK/stubbin/zenchain-adapter-mock"
+printf '%s\n' '#!/usr/bin/env bash' \
+  'printf "ROLE=%s\nCWD=%s\nMODEL=%s\nEFFORT=%s\n" "$ZENCHAIN_AGENT_ROLE" "$ZENCHAIN_AGENT_CWD" "$ZENCHAIN_AGENT_MODEL" "$ZENCHAIN_AGENT_EFFORT"' \
+  'printf "PROMPT="; cat "$ZENCHAIN_AGENT_PROMPT_FILE"' >"$mock"
+chmod +x "$mock"
+PATH="$WORK/stubbin:$PATH" "$ZENCHAIN_HOME/zen" init "$d" --answers "$d/custom.env" --vendor-skills >/dev/null 2>&1
+[[ -f "$d/.mock/roles/reviewer.md" && -f "$d/.mock/roles/implementer.md" ]] \
+  && echo "PASS  custom harness role directory is configurable" \
+  || { echo "FAIL  custom harness role directory was ignored"; fail=1; }
+[[ -f "$d/.mock/prompts/run-prd.md" && -f "$d/.mock/skills/plan-app/SKILL.md" ]] \
+  && echo "PASS  custom harness entry and skill directories are configurable" \
+  || { echo "FAIL  custom harness entry or skill directory was ignored"; fail=1; }
+custom_out="$(cd "$d" && PATH="$WORK/stubbin:$PATH" .zenchain/bin/zenchain-agent implementer "custom prompt" 2>&1 || true)"
+grep -q 'ROLE=implementer' <<<"$custom_out" \
+  && grep -q 'PROMPT=custom prompt' <<<"$custom_out" \
+  && echo "PASS  custom harness adapter receives normalized dispatch" \
+  || { echo "FAIL  custom harness adapter contract was not honored"; fail=1; }
+custom_doctor="$(PATH="$WORK/stubbin:$PATH" "$ZENCHAIN_HOME/zen" doctor "$d" 2>&1 || true)"
+grep -q 'P  install usable' <<<"$custom_doctor" \
+  && echo "PASS  doctor accepts a custom harness adapter" \
+  || { echo "FAIL  doctor rejects a configured custom harness adapter"; fail=1; }
+
 [[ $fail -eq 0 ]] && echo && echo "P  all combinations render" || { echo; echo "R  see FAIL lines above"; exit 1; }
